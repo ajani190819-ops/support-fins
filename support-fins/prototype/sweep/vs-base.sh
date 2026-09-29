@@ -15,10 +15,14 @@ trap cleanup EXIT
 
 git -C "$ROOT" fetch -q origin 2>/dev/null || true
 git -C "$ROOT" worktree add -q --detach "$WORK/base" "$BASE" || exit 2
+# the project moved into support-fins/, so a base ref from before the move
+# still has web/ at its worktree root. Pick whichever layout is there.
+BASEWEB="$WORK/base/support-fins/web"
+[ -d "$BASEWEB" ] || BASEWEB="$WORK/base/web"
 echo "base $(git -C "$WORK/base" log --oneline -1)"
 echo "head $(git -C "$ROOT" log --oneline -1)$(git -C "$ROOT" diff --quiet -- web || echo ' + uncommitted web/ changes')"
 
-deno run -A "$HERE/sweep.js" --web "$WORK/base/web" --out "$WORK/base.json" &
+deno run -A "$HERE/sweep.js" --web "$BASEWEB" --out "$WORK/base.json" &
 deno run -A "$HERE/sweep.js" --web "$ROOT/web" --out "$WORK/head.json" &
 wait
 
@@ -28,7 +32,7 @@ status=$?
 
 if [ -z "${NOCHECK:-}" ]; then
   echo
-  deno run -A "$HERE/sweep.js" --web "$WORK/base/web" --out "$WORK/b2.json" --export "$WORK/exp-base" --only "$WORK/changed.json" >/dev/null &
+  deno run -A "$HERE/sweep.js" --web "$BASEWEB" --out "$WORK/b2.json" --export "$WORK/exp-base" --only "$WORK/changed.json" >/dev/null &
   deno run -A "$HERE/sweep.js" --web "$ROOT/web" --out "$WORK/h2.json" --export "$WORK/exp-head" --only "$WORK/changed.json" >/dev/null &
   wait
   python3 "$HERE/check_diff.py" "$WORK/exp-base" "$WORK/exp-head" || status=1

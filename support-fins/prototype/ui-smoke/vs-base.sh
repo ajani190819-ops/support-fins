@@ -18,12 +18,16 @@ trap cleanup EXIT
 
 git -C "$ROOT" fetch -q origin 2>/dev/null || true
 git -C "$ROOT" worktree add -q --detach "$WORK/base" "$BASE" || exit 2
+# the project moved into support-fins/, so a base ref from before the move
+# still has web/ at its worktree root. Pick whichever layout is there.
+BASEWEB="$WORK/base/support-fins/web"
+[ -d "$BASEWEB" ] || BASEWEB="$WORK/base/web"
 echo "base $(git -C "$WORK/base" log --oneline -1)"
 echo "head $(git -C "$ROOT" log --oneline -1)$(git -C "$ROOT" diff --quiet -- web || echo ' + uncommitted web/ changes')"
 
 status=0
 for m in $MODELS; do
-  deno run -A "$HERE/ui-smoke.js" --web "$WORK/base/web" --model "$m" --out "$WORK/base-$m.json" 2>/dev/null \
+  deno run -A "$HERE/ui-smoke.js" --web "$BASEWEB" --model "$m" --out "$WORK/base-$m.json" 2>/dev/null \
     || { echo "$m: base run failed:"; deno eval "console.log(JSON.parse(Deno.readTextFileSync('$WORK/base-$m.json')).errors.join('\n'))" 2>/dev/null; status=2; continue; }
   deno run -A "$HERE/ui-smoke.js" --web "$ROOT/web" --model "$m" --out "$WORK/head-$m.json" 2>/dev/null
   deno run -A "$HERE/compare.js" "$WORK/base-$m.json" "$WORK/head-$m.json" || status=1

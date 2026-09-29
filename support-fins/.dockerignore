@@ -1,5 +1,6 @@
 # Keep the build context small: the nginx image only ever COPYs web/ (plus
-# Dockerfile, nginx.conf, LICENSE at the repo root). Everything else here is a
+# Dockerfile, nginx.conf, LICENSE at the root of THIS folder -- the build
+# context is support-fins/, not the repo root). Everything else here is a
 # dev/research artifact that should not enter the image.
 
 # VCS + OS
