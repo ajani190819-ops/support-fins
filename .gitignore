@@ -1,18 +1,24 @@
+# Repo-wide
 __pycache__/
 *.pyc
 .DS_Store
 node_modules/
 dist/
-*.stl
-!tests/fixtures/*.stl
-# test models the Deno suite loads (tests/_util.js MODELS); regenerate with
-# prototype/stress/gen.py. Committed so CI and fresh checkouts can run the tests.
 out/
 dev-models/
-prototype/stress/models/*
-!prototype/stress/models/*.stl
-plugins/orca/build/
+
+# --- support-fins/ (the original project) -------------------------------
+# Patterns containing a slash are anchored to this file's directory, so they
+# carry the support-fins/ prefix now that the project lives in a subfolder.
+*.stl
+!support-fins/tests/fixtures/*.stl
+# test models the Deno suite loads (tests/_util.js MODELS); regenerate with
+# support-fins/prototype/stress/gen.py. Committed so CI and fresh checkouts can
+# run the tests.
+support-fins/prototype/stress/models/*
+!support-fins/prototype/stress/models/*.stl
+support-fins/plugins/orca/build/
 
 # example models: Thingi10K ones keep third-party licenses, so they're fetched
 # locally (fetch_thingi.py), never committed
-prototype/examples/real/
+support-fins/prototype/examples/real/
