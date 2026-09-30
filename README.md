@@ -29,6 +29,23 @@ After it runs: **fully quit and reopen OrcaSlicer**, check **File > Plugins**,
 then pick the plugin in your process preset under
 **Others > Slicing Pipeline Plugin**.
 
+### Which source did it use?
+
+Every run prints a **Source** block before it installs anything, and repeats it
+in the summary at the end:
+
+```
+=== Source ===
+  GitHub     ajani190819-ops/support-fins
+  Branch/tag main
+  Catalogue  last updated 2026-09-30
+```
+
+It always tries **`main` first** and only falls back to a work branch if `main`
+doesn't have the catalogue yet — and when it does fall back it says so in plain
+words. So you never have to know a branch name to be sure you got the right
+files: read the banner.
+
 <details>
 <summary>Options</summary>
 

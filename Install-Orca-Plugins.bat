@@ -160,6 +160,8 @@ if %N_FAIL% GTR 0 echo   %N_FAIL% plugin^(s^) FAILED - see the log above.
 echo ===========================================================================
 echo.
 for /f "usebackq delims=" %%L in ("%SUMMARY%") do echo   %%L
+if "%USE_LOCAL%"=="1" echo   source   local files beside this .bat
+if not "%USE_LOCAL%"=="1" echo   source   %REPO% @ %ACTIVE_REF%
 echo.
 if %N_OK%==0 goto fail
 
@@ -208,7 +210,7 @@ rem   Line format:  id|name|version|orca_dir|file|repo_path
 rem ===========================================================================
 :build_plan
 del "%PF_PLAN%" 2>nul
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { $j = Get-Content -LiteralPath $env:PF_MANIFEST -Raw | ConvertFrom-Json } catch { exit 3 }; $only = @(); if ($env:PLUGIN_ONLY) { $only = @($env:PLUGIN_ONLY -split '[,; ]+' | Where-Object { $_ }) }; $lines = @(); foreach ($p in $j.plugins) { if ($p.status -ne 'ready') { continue }; if ($only.Count -gt 0 -and $only -notcontains $p.id) { continue }; $caps = @(); foreach ($c in $p.capabilities) { $caps += @{ $c = $true } }; $state = @{ capabilities = $caps; enabled = $true; installed_from = 'local'; installed_version = [string]$p.version; plugin_name = [string]$p.name }; ($state | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath (Join-Path $env:PF_WORK ($p.id + '.state.json')) -Encoding ASCII; $lines += ('{0}|{1}|{2}|{3}|{4}|{5}' -f $p.id, $p.name, $p.version, $p.orca_dir, $p.file, $p.path) }; if ($lines.Count -eq 0) { exit 4 }; Set-Content -LiteralPath $env:PF_PLAN -Value $lines -Encoding ASCII"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { $j = Get-Content -LiteralPath $env:PF_MANIFEST -Raw | ConvertFrom-Json } catch { exit 3 }; $only = @(); if ($env:PLUGIN_ONLY) { $only = @($env:PLUGIN_ONLY -split '[,; ]+' | Where-Object { $_ }) }; $lines = @(); foreach ($p in $j.plugins) { if ($p.status -ne 'ready') { continue }; if ($only.Count -gt 0 -and $only -notcontains $p.id) { continue }; $caps = @(); foreach ($c in $p.capabilities) { $caps += @{ $c = $true } }; $state = @{ capabilities = $caps; enabled = $true; installed_from = 'local'; installed_version = [string]$p.version; plugin_name = [string]$p.name }; ($state | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath (Join-Path $env:PF_WORK ($p.id + '.state.json')) -Encoding ASCII; $lines += ('{0}|{1}|{2}|{3}|{4}|{5}' -f $p.id, $p.name, $p.version, $p.orca_dir, $p.file, $p.path) }; Set-Content -LiteralPath (Join-Path $env:PF_WORK 'meta.txt') -Value ([string]$j.updated) -Encoding ASCII; if ($lines.Count -eq 0) { exit 4 }; Set-Content -LiteralPath $env:PF_PLAN -Value $lines -Encoding ASCII"
 set "PS_RC=%ERRORLEVEL%"
 
 if "%PS_RC%"=="4" goto plan_empty
@@ -222,6 +224,28 @@ if not exist "%PF_PLAN%" (
     echo ERROR: could not work out what to install.
     exit /b 1
 )
+set "CAT_UPDATED="
+if exist "%WORK%\meta.txt" for /f "usebackq delims=" %%U in ("%WORK%\meta.txt") do set "CAT_UPDATED=%%U"
+
+echo.
+echo === Source ===
+if "%USE_LOCAL%"=="1" goto src_local
+echo   GitHub     %REPO%
+echo   Branch/tag %ACTIVE_REF%
+goto src_stamp
+:src_local
+echo   Local files beside this .bat
+echo   %HERE%
+:src_stamp
+if defined CAT_UPDATED echo   Catalogue  last updated %CAT_UPDATED%
+if "%USE_LOCAL%"=="1" goto src_done
+if /i "%ACTIVE_REF%"=="main" goto src_done
+echo.
+echo   NOTE: that is a work branch, not main. Expected before the change is
+echo   merged. This installer always tries main FIRST, so the moment the work
+echo   lands on main it switches over on its own - nothing for you to edit.
+:src_done
+
 echo.
 echo === Plugins to install / update ===
 for /f "usebackq eol=# tokens=1-3 delims=|" %%a in ("%PF_PLAN%") do echo   - %%b  v%%c
