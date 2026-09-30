@@ -43,16 +43,16 @@ fork sees the fins as just more sliced geometry.
 
 ## Windows one-step install/update
 
-From the repository root, double-click or run:
+**For normal use, don't build anything.** Double-click
+`Install-Orca-Plugins.bat` at the repository root: it downloads the newest
+already-built plugin — this one and every other — and needs no Python, Node or
+Git. The shipped build lives in [`my-plugins/support-fins/`](../../../my-plugins/support-fins/).
+
+To build and install **this working tree** instead, double-click or run from the
+`original-support-fins/` folder:
 
 ```bat
-install-orca-support-fins.bat
-```
-
-There is also a wrapper here:
-
-```bat
-support-fins\plugins\orca\install-update-windows.bat
+build-and-install-orca.bat
 ```
 
 The batch file builds the plugin, finds your Orca data directory under `%APPDATA%`, copies the
@@ -61,7 +61,7 @@ with both capabilities enabled.  If you have more than one Orca data directory, 
 to choose one.  You can also pass the data directory explicitly:
 
 ```bat
-install-orca-support-fins.bat "C:\Users\you\AppData\Roaming\OrcaSlicer"
+build-and-install-orca.bat "C:\Users\you\AppData\Roaming\OrcaSlicer"
 ```
 
 Restart Orca, or reopen **File > Plugins**, after running it.
@@ -132,9 +132,8 @@ on first load and they only become importable after a restart**:
    `deps: numpy loaded at startup (audit-safe)`.
 3. Slice.
 
-If it still fails after a restart, reinstall with the bundled installer
-(`install-orca-support-fins.bat`, or `orca-nightly-installer/` for nightlies) to
-refresh the plugin, then restart Orca again.
+If it still fails after a restart, reinstall with `Install-Orca-Plugins.bat` at the
+repository root to refresh the plugin, then restart Orca again.
 
 ## Configuration
 
@@ -172,7 +171,7 @@ It avoids discovering install/API/dependency problems only after a full slice.
 
 ## Tests
 
-Offline checks from the inner `support-fins/` folder:
+Offline checks from the `original-support-fins/` folder:
 
 ```bash
 python3 plugins/orca/build.py

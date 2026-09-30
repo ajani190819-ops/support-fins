@@ -103,8 +103,9 @@ geometry is already right. See `web/threemf.js` for the writer.
 
 ## Run it locally
 
-> This project lives in the `support-fins/` subfolder of the repo. Every path and
-> command below is relative to **this folder**, so `cd support-fins` after cloning.
+> This project lives in the `original-support-fins/` subfolder of the repo. Every
+> path and command below is relative to **this folder**, so
+> `cd original-support-fins` after cloning.
 
 The web app is vanilla ES modules — no build step. Serve it with the included dev server
 (it disables caching so edits actually show up on reload):
@@ -156,10 +157,14 @@ Recent Orca builds have a Python plugin system with slicing-pipeline hooks.  The
 website and injects fin cross-sections at `Step.posSlice`, before Orca generates walls, infill,
 wave-overhang paths or G-code.
 
-On Windows, from the repository root, run:
+**Just want the plugin?** Double-click `Install-Orca-Plugins.bat` at the repository root.
+It downloads the newest build of every plugin and needs no build tools — see the
+[repo README](../README.md#install-the-plugins).
+
+To build and install *this working tree* instead (needs Python + Node), run from this folder:
 
 ```bat
-install-orca-support-fins.bat
+build-and-install-orca.bat
 ```
 
 That builds and copies the plugin into Orca's `orca_plugins` directory.  Manual build/install

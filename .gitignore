@@ -7,20 +7,26 @@ dist/
 out/
 dev-models/
 
-# --- support-fins/ (the original project) -------------------------------
+# --- original-support-fins/ (the original project) ----------------------
 # Patterns containing a slash are anchored to this file's directory, so they
-# carry the support-fins/ prefix now that the project lives in a subfolder.
+# carry the original-support-fins/ prefix.
 *.stl
-!support-fins/tests/fixtures/*.stl
+!original-support-fins/tests/fixtures/*.stl
 # test models the Deno suite loads (tests/_util.js MODELS); regenerate with
-# support-fins/prototype/stress/gen.py. Committed so CI and fresh checkouts can
-# run the tests.
-support-fins/prototype/stress/models/*
-!support-fins/prototype/stress/models/*.stl
-support-fins/plugins/orca/build/
-support-fins/plugins/orca-wave/build/
-support-fins/plugins/orca-wave/**/wave_overhangs_log.jsonl
+# original-support-fins/prototype/stress/gen.py. Committed so CI and fresh
+# checkouts can run the tests.
+original-support-fins/prototype/stress/models/*
+!original-support-fins/prototype/stress/models/*.stl
+original-support-fins/plugins/orca/build/
+original-support-fins/plugins/orca-wave/build/
+original-support-fins/plugins/orca-wave/**/wave_overhangs_log.jsonl
 
 # example models: Thingi10K ones keep third-party licenses, so they're fetched
 # locally (fetch_thingi.py), never committed
-support-fins/prototype/examples/real/
+original-support-fins/prototype/examples/real/
+
+# --- my-plugins/ --------------------------------------------------------
+# NOTE: the built plugin under each my-plugins/<id>/ IS the released artifact
+# that Install-Orca-Plugins.bat downloads, so those .py files are committed on
+# purpose. Only throwaway output is ignored here.
+my-plugins/**/*.log

@@ -1,7 +1,11 @@
 {
   "capabilities": [
-    { "Wave Overhangs": true },
-    { "Wave Overhangs - Check setup": true }
+    {
+      "Wave Overhangs": true
+    },
+    {
+      "Wave Overhangs - Check setup": true
+    }
   ],
   "enabled": true,
   "installed_from": "local",

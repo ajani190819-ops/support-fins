@@ -1,0 +1,9 @@
+# Windows batch files must keep CRLF. cmd.exe mis-parses multi-line blocks and
+# trailing labels in an LF-only .bat, and these are the files a user
+# double-clicks, so a checkout on any platform has to produce CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Shell scripts must keep LF even when checked out on Windows.
+*.sh text eol=lf

@@ -18,10 +18,14 @@ trap cleanup EXIT
 
 git -C "$ROOT" fetch -q origin 2>/dev/null || true
 git -C "$ROOT" worktree add -q --detach "$WORK/base" "$BASE" || exit 2
-# the project moved into support-fins/, so a base ref from before the move
-# still has web/ at its worktree root. Pick whichever layout is there.
-BASEWEB="$WORK/base/support-fins/web"
-[ -d "$BASEWEB" ] || BASEWEB="$WORK/base/web"
+# The project has moved twice: web/ at the root, then support-fins/web, now
+# original-support-fins/web. A base ref can predate either move, so try the
+# layouts newest-first and use whichever is actually there.
+for cand in original-support-fins/web support-fins/web web; do
+  BASEWEB="$WORK/base/$cand"
+  [ -d "$BASEWEB" ] && break
+done
+[ -d "$BASEWEB" ] || { echo "no web/ found in base ref $BASE" >&2; exit 2; }
 echo "base $(git -C "$WORK/base" log --oneline -1)"
 echo "head $(git -C "$ROOT" log --oneline -1)$(git -C "$ROOT" diff --quiet -- web || echo ' + uncommitted web/ changes')"
 

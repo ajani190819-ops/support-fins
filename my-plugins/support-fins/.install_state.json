@@ -1,7 +1,11 @@
 {
   "capabilities": [
-    { "Support Fins": true },
-    { "Support Fins - Check setup": true }
+    {
+      "Support Fins": true
+    },
+    {
+      "Support Fins - Check setup": true
+    }
   ],
   "enabled": true,
   "installed_from": "local",
