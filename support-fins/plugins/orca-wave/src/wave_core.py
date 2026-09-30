@@ -288,3 +288,138 @@ def plan_layer(layer: Polygon, support: Polygon, z: float, cfg: WaveConfig):
     polylines = order_tracks(tracks, support, cfg)
     return LayerWaveResult(z=z, polylines=polylines,
                            overhang_area=float(ov.area), n_tracks=len(tracks))
+
+
+# ---------------------------------------------------------------------------------
+# G-code layer parsing, self-calibration and splicing (pure text; unit tested)
+# ---------------------------------------------------------------------------------
+
+Z_KEYS = (";Z:", ";HEIGHT:", ";LAYER_Z:")
+
+
+def parse_layer_z(line: str):
+    """The layer height a G-code line announces, or None.
+
+    Handles Orca/Prusa comment markers (;Z: / ;HEIGHT: / ;LAYER_Z:) and a bare
+    layer-change move (`G1 Z.. F..` with no X/Y).
+    """
+    s = line.strip()
+    for k in Z_KEYS:
+        if s.startswith(k):
+            try:
+                return float(s[len(k):].strip().split()[0])
+            except Exception:
+                return None
+    if s[:2] in ("G0", "G1") and "Z" in s and " X" not in (" " + s) and " Y" not in (" " + s):
+        for tok in s.split():
+            if tok.startswith("Z"):
+                try:
+                    return float(tok[1:])
+                except Exception:
+                    return None
+    return None
+
+
+def _extruding_xy(line: str):
+    """(x, y) for an extruding G1 move (has X, Y and an E token), else None."""
+    s = line.strip()
+    if not s.startswith("G1"):
+        return None
+    x = y = None
+    has_e = False
+    for tok in s.split():
+        if tok.startswith("X"):
+            try:
+                x = float(tok[1:])
+            except Exception:
+                return None
+        elif tok.startswith("Y"):
+            try:
+                y = float(tok[1:])
+            except Exception:
+                return None
+        elif tok.startswith("E"):
+            has_e = True
+    if x is not None and y is not None and has_e:
+        return (x, y)
+    return None
+
+
+def layer_extrusion_min(lines, target_z, tol=1e-3):
+    """Min (x, y) corner of extruding moves on the layer nearest `target_z`."""
+    minx = miny = None
+    cur = None
+    for line in lines:
+        z = parse_layer_z(line)
+        if z is not None:
+            cur = z
+            continue
+        if cur is not None and abs(cur - target_z) <= tol:
+            xy = _extruding_xy(line)
+            if xy is not None:
+                minx = xy[0] if minx is None else min(minx, xy[0])
+                miny = xy[1] if miny is None else min(miny, xy[1])
+    return (minx, miny)
+
+
+def _match_z(z, plans, tol=1e-3):
+    for pz in plans:
+        if abs(pz - z) <= tol:
+            return pz
+    return None
+
+
+def splice_gcode(text, layer_plans, cfg: WaveConfig, calibration):
+    """Insert wave moves into exported G-code. Pure text in / out.
+
+    layer_plans : {round(z,3): [polyline_in_object_frame, ...]}
+    calibration : ("manual", dx, dy)                     -> use this XY offset, or
+                  ("auto", calib_z, obj_min_x, obj_min_y) -> derive the offset by
+                    aligning Orca's own printed outline on layer `calib_z` to the
+                    object-frame outline min corner (a pure translation).
+
+    Wave moves for a layer are inserted just before the NEXT layer marker, i.e.
+    after Orca has printed that layer's own perimeters/infill.
+    Returns (new_text, inserted_layer_count, (dx, dy)).
+    """
+    lines = text.splitlines(keepends=True)
+
+    if calibration and calibration[0] == "manual":
+        dx, dy = float(calibration[1]), float(calibration[2])
+    elif calibration and calibration[0] == "auto":
+        _, cz, omx, omy = calibration
+        gmin = layer_extrusion_min(lines, cz)
+        if gmin[0] is None or omx is None:
+            dx, dy = 0.0, 0.0
+        else:
+            dx, dy = gmin[0] - omx, gmin[1] - omy
+    else:
+        dx, dy = 0.0, 0.0
+
+    out = []
+    inserted = 0
+    pending = None  # (z, polylines) waiting to be flushed at the next layer marker
+
+    def flush():
+        nonlocal inserted
+        if pending is None:
+            return
+        z, polys = pending
+        shifted = [[(x + dx, y + dy) for (x, y) in pts] for pts in polys]
+        for ln in emit_layer_gcode(shifted, z, cfg):
+            out.append(ln + "\n")
+        inserted += 1
+
+    for line in lines:
+        z = parse_layer_z(line)
+        if z is not None:
+            flush()
+            pending = None
+            key = _match_z(z, layer_plans)
+            if key is not None:
+                pending = (z, layer_plans[key])
+        out.append(line)
+    flush()
+
+    return "".join(out), inserted, (dx, dy)
+

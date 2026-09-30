@@ -83,19 +83,47 @@ preset. Run **Wave Overhangs - Check setup** first.
 These mirror the fork's tunables. `xy_offset` ("x,y" mm) manually overrides the
 object→bed mapping for calibration.
 
+## Seeing the waves (they are NOT in Orca's Preview)
+
+Orca builds its on-screen Preview *before* plugin G-code post-processing runs, so
+the wave toolpaths — which are spliced into the exported G-code — **do not appear
+in Orca's Preview**. That is a hard limitation of doing this as a plugin (Orca has
+no wave toolpath generator to visualise). To actually look at the arcs, use the
+bundled previewer, which writes an SVG you can open in any browser:
+
+```bash
+# a sample overhang (with a hole, to show the fronts diffracting around it)
+python3 plugins/orca-wave/tools/preview_waves.py --demo -o waves.svg
+
+# the real thing: read your EXPORTED .gcode and draw the injected wave lines
+python3 plugins/orca-wave/tools/preview_waves.py --gcode myprint.gcode -o waves.svg
+```
+
+`tools/example-waves.svg` is a checked-in sample of the demo output.
+
+## Object → bed coordinate mapping (self-calibrating)
+
+Slices are in the object's frame; G-code is in absolute bed coordinates. Instead of
+guessing an instance transform, the plugin **self-calibrates**: a fully-supported
+layer prints the same outline in both frames, so aligning that layer's min corner
+recovers the (pure-translation) offset. This logic lives in
+`wave_core.splice_gcode` and is unit-tested (`test_splice_auto_calibrates...`).
+Override it with the `xy_offset` config ("x,y" mm) if a build needs it. After a
+slice, `wave_overhangs_log.jsonl` records `calibration` and `applied_offset`.
+
 ## What still needs real-Orca validation
 
-1. **Object → bed XY mapping** (`_bed_offset`). Slices are in the object frame;
-   G-code is absolute bed coordinates. The current code tries the first instance's
-   offset and falls back to 0; verify against a known part and use `xy_offset` if
-   needed. **This is the #1 thing to check.**
+1. **Confirm the applied offset** on a real export: run a slice, then
+   `preview_waves.py --gcode <export>` and check the arcs sit over the overhang.
+   If not, set `xy_offset` and re-slice.
 2. **Carving vs. perimeters.** `carve_overhang` removes the overhang from the
    layer's slices so Orca skips it. The fork keeps N "wave overhang perimeters"
    around the region — not yet implemented here.
-3. **Layer matching in G-code** — `_parse_layer_z` keys off `;Z:` / `;HEIGHT:` /
-   bare `Z` moves; confirm your Orca build emits one of those.
-4. **Multi-object / multi-instance plates** — the stash is keyed per object; bed
-   offset per instance needs testing.
+3. **Layer matching in G-code** — `wave_core.parse_layer_z` keys off `;Z:` /
+   `;HEIGHT:` / bare `Z` moves; confirm your Orca build emits one of those (check
+   `spliced_layers` in the log).
+4. **Multi-object / multi-instance plates** — the stash and single calibration
+   assume one object; multi-object needs per-object offsets.
 
 Diagnostics are appended to `wave_overhangs_log.jsonl` next to the plugin.
 
@@ -114,7 +142,9 @@ flow/fan/speed.
 
 - [x] Wave-toolpath core + G-code emitter (tested)
 - [x] Single-file plugin (posSlice stash + carve, psGCodePostProcess splice)
-- [ ] Validate object→bed mapping on a real slice
+- [x] Self-calibrating object→bed mapping (unit tested)
+- [x] Standalone SVG previewer (demo + read-back from exported G-code)
+- [ ] Confirm calibration on a real slice across a few printers
 - [ ] Keep N wave-overhang perimeters instead of full carve
 - [ ] Remove Orca's original overhang moves from the G-code (vs. relying on carve)
 - [ ] Min-wave-width splitting; corner reinforcement; per-region cooling
