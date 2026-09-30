@@ -1,0 +1,16 @@
+# Windows batch files must keep CRLF, and must keep it *in the stored blob* —
+# not just in the working tree. `text eol=crlf` would store LF and convert on
+# checkout, which is fine for a clone but wrong for the main way people get this
+# file: GitHub's "download raw file" button serves the blob verbatim, so a
+# normalised .bat arrives LF-only. cmd.exe mis-parses LF-only batch files —
+# goto/call label seeking is the usual casualty, and Install-Orca-Plugins.bat is
+# built almost entirely out of labels.
+#
+# `-text` disables EOL conversion in both directions; `diff` forces git to still
+# treat them as text so changes stay reviewable.
+*.bat -text diff
+*.cmd -text diff
+*.ps1 -text diff
+
+# Shell scripts must keep LF even when checked out on Windows.
+*.sh text eol=lf

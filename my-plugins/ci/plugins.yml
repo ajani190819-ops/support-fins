@@ -1,0 +1,172 @@
+name: plugins
+
+# Rebuild and test the plugins whenever something they use changes. Orca bundles
+# the site's engine (original-support-fins/web/*.js) at build time, so a site
+# change only reaches Orca users through a rebuild: this makes that rebuild
+# automatic, and makes a site change that breaks a plugin fail the PR that made
+# it.
+#
+#   PR:            build + test
+#   push to main:  build + test, then publish the builds to the rolling
+#                  `plugins-latest` pre-release
+#
+# The plugin sources live in original-support-fins/plugins/ because the Support
+# Fins build inlines the web app's engine. The ready-to-install copies users
+# actually download live in my-plugins/<id>/ and are refreshed with
+# `python3 my-plugins/refresh-builds.py`.
+#
+# Not here: the shared engine's Deno tests (plugins/shared/tests) already run in
+# test.yml. Onshape is published from its Onshape document, so there is nothing
+# to build.
+
+on:
+  pull_request:
+    paths:
+      - 'original-support-fins/web/**'
+      - 'original-support-fins/plugins/**'
+      - 'my-plugins/**'
+      - 'Install-Orca-Plugins.bat'
+      - '.github/workflows/plugins.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'original-support-fins/web/**'
+      - 'original-support-fins/plugins/**'
+      - 'my-plugins/**'
+      - 'Install-Orca-Plugins.bat'
+      - '.github/workflows/plugins.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  orca:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: original-support-fins
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4     # npx fetches the pinned esbuild (plugins/shared/bundle.py)
+        with:
+          node-version: '22'
+      - name: Install test dependencies
+        # mini-racer pinned to the version the plugin's PEP 723 header asks Orca for
+        run: pip install pytest numpy trimesh scipy shapely rtree networkx mini-racer==0.14.1
+      - name: Build Support Fins
+        run: python plugins/orca/build.py
+      - name: Test Support Fins
+        run: python -m pytest -q plugins/orca/tests/
+      - name: Build Wave Overhangs
+        run: python plugins/orca-wave/build.py
+      - name: Test Wave Overhangs
+        run: python -m pytest -q plugins/orca-wave/tests/
+      - name: Test Wave Overhangs against the shipped build
+        run: |
+          WAVE_PLUGIN_PATH="$GITHUB_WORKSPACE/my-plugins/wave-overhangs/wave_overhangs_orca.py" \
+            python -m pytest -q plugins/orca-wave/tests/test_orca_seams.py
+      - name: Build Unlayered Infill
+        run: python plugins/orca-infill/build.py
+      - name: Test Unlayered Infill
+        run: python -m pytest -q plugins/orca-infill/tests/
+      - name: Test Unlayered Infill against the shipped build
+        run: |
+          INFILL_PLUGIN_PATH="$GITHUB_WORKSPACE/my-plugins/unlayered-infill/unlayered_infill_orca.py" \
+            python -m pytest -q plugins/orca-infill/tests/test_orca_seam.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orca
+          path: |
+            original-support-fins/plugins/orca/build/support_fins_orca.py
+            original-support-fins/plugins/orca-wave/build/wave_overhangs_orca.py
+            original-support-fins/plugins/orca-infill/build/unlayered_infill_orca.py
+          if-no-files-found: error
+
+  installer:
+    # Guards the contract between my-plugins/plugins.json and the one-click
+    # installer: a plugin listed but not shipped, a version that drifted, or a
+    # stale fallback list in the .bat all break a user's double-click.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check the catalogue and replay an install
+        run: python3 my-plugins/tests/test_installer.py
+      - name: Are the shipped builds current?
+        # Advisory only. esbuild is pinned to a minor range, so a patch bump can
+        # change the minified bytes without changing behaviour, and that must not
+        # red-X an unrelated PR. A real mismatch still shows up loudly here, and
+        # the version drift it would cause is a hard failure in the step above.
+        continue-on-error: true
+        run: python3 my-plugins/refresh-builds.py --check
+
+  prusa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: original-support-fins
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua
+        run: sudo apt-get update -q && sudo apt-get install -y -q lua5.4 && lua -v && luac -v
+      - name: Test
+        run: bash plugins/prusa/run-tests.sh
+      - name: Package
+        # the slicer loads the bundle folder, so ship the folder zipped
+        run: cd plugins/prusa && zip -qr "$GITHUB_WORKSPACE/support-fins-prusa.zip" com.printfins.support-fins
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prusa
+          path: support-fins-prusa.zip
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [orca, installer, prusa]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: plugins-publish
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: plugins-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Move the tag to this commit
+        run: |
+          git tag -f "$TAG"
+          git push -f origin "refs/tags/$TAG"
+      - name: Publish
+        run: |
+          notes="Built automatically from ${GITHUB_SHA::7} on main. Replaced on every push that touches the plugins or the web app.
+
+          Most people should not need these files — double-click \`Install-Orca-Plugins.bat\` from the repo instead and it fetches the newest build for you.
+
+          - support_fins_orca.py: OrcaSlicer plugin, stable
+          - wave_overhangs_orca.py: OrcaSlicer plugin, experimental
+          - support-fins-prusa.zip: PrusaSlicer 3.0 plugin bundle, placement by hand"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "Plugins (latest build)" --notes "$notes" --prerelease
+          else
+            gh release create "$TAG" --title "Plugins (latest build)" --notes "$notes" --prerelease --verify-tag
+          fi
+          gh release upload "$TAG" dist/* --clobber

@@ -1,0 +1,85 @@
+# Builds both plugins from dev/ and runs their suites, twice over: once against
+# the source tree and once against the built artifact that users actually
+# download, so a build step that silently drops code cannot pass.
+name: plugins
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dev/**'
+      - 'wave-overhangs/**'
+      - 'unlayered-infill/**'
+      - 'plugins.json'
+      - 'refresh-builds.py'
+      - 'tests/**'
+      - 'Install-Orca-Plugins.bat'
+      - '.github/workflows/plugins.yml'
+  pull_request:
+    paths:
+      - 'dev/**'
+      - 'wave-overhangs/**'
+      - 'unlayered-infill/**'
+      - 'plugins.json'
+      - 'refresh-builds.py'
+      - 'tests/**'
+      - 'Install-Orca-Plugins.bat'
+      - '.github/workflows/plugins.yml'
+  workflow_dispatch:
+
+jobs:
+  plugins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest numpy shapely
+
+      # --- Wave Overhangs -------------------------------------------------
+      - name: Build Wave Overhangs
+        run: python build.py
+        working-directory: dev/wave-overhangs
+
+      - name: Test Wave Overhangs (source)
+        run: python -m pytest -q tests/
+        working-directory: dev/wave-overhangs
+
+      - name: Test Wave Overhangs (built artifact)
+        run: python -m pytest -q tests/test_orca_seams.py
+        working-directory: dev/wave-overhangs
+        env:
+          WAVE_PLUGIN_PATH: ${{ github.workspace }}/wave-overhangs/wave_overhangs_orca.py
+
+      # --- Unlayered Infill -----------------------------------------------
+      - name: Build Unlayered Infill
+        run: python build.py
+        working-directory: dev/unlayered-infill
+
+      - name: Test Unlayered Infill (source)
+        run: python -m pytest -q tests/
+        working-directory: dev/unlayered-infill
+
+      - name: Test Unlayered Infill (built artifact)
+        run: python -m pytest -q tests/test_orca_seam.py
+        working-directory: dev/unlayered-infill
+        env:
+          INFILL_PLUGIN_PATH: ${{ github.workspace }}/unlayered-infill/unlayered_infill_orca.py
+
+      # --- Catalogue and installer ----------------------------------------
+      - name: Catalogue, installer and builds agree
+        run: python tests/test_installer.py
+
+      - name: Committed builds match dev/
+        run: python refresh-builds.py --check
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orca-plugins
+          path: |
+            wave-overhangs/
+            unlayered-infill/
