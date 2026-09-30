@@ -20,7 +20,7 @@ C++ fork.
 | Installs to | `%APPDATA%\OrcaSlicer\orca_plugins\WaveOverhangs\` |
 | Capabilities | `Wave Overhangs`, `Wave Overhangs - Check setup` |
 | Needs | Nothing — Orca installs numpy + shapely itself on first load |
-| Source | [`../../original-support-fins/plugins/orca-wave/`](../../original-support-fins/plugins/orca-wave/) |
+| Source | [`../dev/wave-overhangs/`](../dev/wave-overhangs/) |
 
 ## Install
 
@@ -85,7 +85,7 @@ automatically once the splice is confirmed.
 ## What still needs calibration
 
 See the
-[plugin README](../../original-support-fins/plugins/orca-wave/README.md) for the
+[plugin README](../dev/wave-overhangs/README.md) for the
 open list. Short version: the wave geometry is covered by tests
 (`plugins/orca-wave/tests/`), the Orca integration is not.
 
@@ -94,5 +94,5 @@ open list. Short version: the wave geometry is covered by tests
 It is generated — don't hand-edit it.
 
 ```bash
-python3 my-plugins/refresh-builds.py
+python3 refresh-builds.py
 ```

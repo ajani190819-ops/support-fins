@@ -3,7 +3,7 @@
 Adapted from `nonPlanarInfill.py`, Copyright (c) 2025 Roman Tenger (TenTech),
 GPL-3.0 — https://github.com/TengerTechnologies/NonPlanarInfill — by way of the
 "Non-Planar Infill Tool" kept verbatim at
-`my-plugins/unlayered-infill/reference/nonplanar_infill_tool.py`.
+`reference/nonplanar_infill_tool.py`.
 
 The idea is unchanged: inside sparse-infill sections, split each extrusion into
 short segments and ride a sine wave in Z, `dz = amplitude * scale * sin(f * x)`,

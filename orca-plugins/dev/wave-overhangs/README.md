@@ -182,7 +182,7 @@ Run the second suite against the *built* single-file plugin too — `build.py`
 inlines `wave_core`, so the artifact users install must behave identically:
 
 ```bash
-WAVE_PLUGIN_PATH=$PWD/../../../my-plugins/wave-overhangs/wave_overhangs_orca.py \
+WAVE_PLUGIN_PATH=$PWD/../../wave-overhangs/wave_overhangs_orca.py \
   python3 -m pytest -q plugins/orca-wave/tests/test_orca_seams.py
 ```
 

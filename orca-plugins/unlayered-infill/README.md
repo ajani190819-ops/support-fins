@@ -21,7 +21,7 @@ perimeters do, so a part is only as strong as its weakest layer boundary.
 | Installs to | `%APPDATA%\OrcaSlicer\orca_plugins\UnlayeredInfill\` |
 | Capabilities | `Unlayered Infill`, `Unlayered Infill - Check setup` |
 | Needs | **Nothing.** Pure standard library — no numpy, no shapely, no first-run install, no restart |
-| Source | [`../../original-support-fins/plugins/orca-infill/`](../../original-support-fins/plugins/orca-infill/) |
+| Source | [`../dev/unlayered-infill/`](../dev/unlayered-infill/) |
 | Licence | GPL-3.0 (see [Credit](#credit)) |
 
 ## Install
@@ -114,7 +114,7 @@ displacement.
 
 Support Fins and Wave Overhangs inject geometry at `Step.posSlice` and let Orca
 own flow, speed and cooling. That is the house rule, and
-[the Support Fins README](../../original-support-fins/plugins/orca/README.md)
+the Support Fins plugin
 argues for it at length.
 
 Non-planar infill is the one case where the rule cannot apply: **a slice polygon
@@ -180,5 +180,5 @@ original value, rather than each segment rounding independently and drifting.
 It is generated — don't hand-edit it.
 
 ```bash
-python3 my-plugins/refresh-builds.py
+python3 refresh-builds.py
 ```

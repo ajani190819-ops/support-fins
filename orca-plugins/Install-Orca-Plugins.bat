@@ -10,7 +10,7 @@ rem   and double-click it whenever you want the newest plugins. It needs NO
 rem   Python, Node, Git or build tools.
 rem
 rem   Every run:
-rem     1. downloads the plugin catalogue, my-plugins/plugins.json, from GitHub
+rem     1. downloads the plugin catalogue, plugins.json, from GitHub
 rem     2. downloads every plugin the catalogue marks as ready
 rem     3. installs each into your OrcaSlicer data folder - creating it if you
 rem        do not have that plugin yet, overwriting it if you do

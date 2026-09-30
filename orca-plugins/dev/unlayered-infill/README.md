@@ -118,7 +118,7 @@ INFILL_PLUGIN_PATH=$PWD/plugins/orca-infill/build/unlayered_infill_orca.py \
 Adapted from **`nonPlanarInfill.py`**, Copyright © 2025 **Roman Tenger
 (TenTech)**, GPL-3.0 — <https://github.com/TengerTechnologies/NonPlanarInfill>.
 This lane is likewise GPL-3.0. The intermediate tool it reached us through is
-kept verbatim at `my-plugins/unlayered-infill/reference/nonplanar_infill_tool.py`.
+kept verbatim at `reference/nonplanar_infill_tool.py`.
 
 Testing that tool against realistic Orca output turned up five defects. Each is
 now a test in `test_nonplanar_core.py`; measured on a ten-layer 20 mm cube:

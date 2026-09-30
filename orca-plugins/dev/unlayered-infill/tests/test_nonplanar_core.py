@@ -1,7 +1,7 @@
 """Tests for the non-planar infill engine.
 
 Each of the first five classes pins one defect found in the reference tool
-(`my-plugins/unlayered-infill/reference/nonplanar_infill_tool.py`) by running
+(`reference/nonplanar_infill_tool.py`) by running
 the reference's own behaviour against the fixed engine on the same G-code.
 """
 import math
