@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """Render what the Wave Overhangs plugin would do to a part, as an SVG.
 
-    python3 demo/ripple_svg.py                       # built-in tabletop demo
+    python3 demo/ripple_svg.py                       # built-in tabletop demo (skin mode)
+    python3 demo/ripple_svg.py --mode ramp           # the terrace variant
     python3 demo/ripple_svg.py tests/models/tshape.stl --pose -90
-    python3 demo/ripple_svg.py part.stl --ramp 55 --reach 20 --out out/part.svg
+    python3 demo/ripple_svg.py part.stl --ring-pitch 2 --out out/part.svg
 
 Two views, side by side:
 
   * PLAN -- one cell per sampled layer: the model's slice (dashed) and what
-    the plugin lets that layer print (filled). The filled footprint growing
-    ring by ring, conforming to the supported perimeter, is the wave.
+    the plugin lets that layer print (filled). In skin mode the filled skin
+    shows the ripple groove dashes running outward from the supported
+    perimeter; in ramp mode the footprint grows one ring per layer.
 
   * PROFILE -- a cross-section along y = 0 of the whole part: the model's
-    outline (red) against the printed solid (blue). A flat ceiling becomes a
-    terraced ramp; the terraces are the ripples seen from the side.
+    outline (red) against the printed solid (blue). Skin mode keeps the
+    outline exactly; ramp mode shows the terraced wedge it removes.
 
 Runs the plugin's own geometry core (src/wave_overhangs_orca.py, imported
 without Orca), so the picture is the real plan, not a sketch of it.
@@ -200,16 +202,23 @@ def main():
     ap.add_argument("--pose", type=float, default=-90,
                     help="rotation about X before slicing, degrees (STL only)")
     ap.add_argument("--layer", type=float, default=0.2)
-    ap.add_argument("--ramp", type=float, default=45.0)
+    ap.add_argument("--mode", default="skin", choices=["skin", "ramp"])
     ap.add_argument("--threshold", type=float, default=30.0)
-    ap.add_argument("--reach", type=float, default=10.0)
+    ap.add_argument("--reach", type=float, default=10.0, help="ramp mode: max ripple reach, mm")
+    ap.add_argument("--ramp", type=float, default=45.0, help="ramp mode: ramp angle, degrees")
+    ap.add_argument("--ring-pitch", type=float, default=None, help="skin mode: ring spacing, mm")
+    ap.add_argument("--groove", type=float, default=None, help="skin mode: groove width, mm")
     ap.add_argument("--cols", type=int, default=8)
     ap.add_argument("--out", default=None, help="output .svg (default out/<name>.svg)")
     args = ap.parse_args()
 
     cfg = dict(WO._DEFAULTS)
-    cfg.update({"ramp_angle_deg": args.ramp, "threshold_deg": args.threshold,
-                "max_reach_mm": args.reach})
+    cfg.update({"mode": args.mode, "threshold_deg": args.threshold,
+                "ramp_angle_deg": args.ramp, "max_reach_mm": args.reach})
+    if args.ring_pitch is not None:
+        cfg["ring_pitch_mm"] = args.ring_pitch
+    if args.groove is not None:
+        cfg["groove_width_mm"] = args.groove
 
     if args.stl:
         U = stack_from_stl(args.stl, args.pose, args.layer)
@@ -223,12 +232,19 @@ def main():
     out = pathlib.Path(args.out) if args.out else (ROOT / "out" / f"{name}.svg")
     cell, pad, page_pad = 170, 10, 16
     svg = Svg()
-    svg.text(page_pad, 18, f"Wave Overhangs -- {name}  "
-             f"(ramp {args.ramp}\u00b0, threshold {args.threshold}\u00b0, "
-             f"reach {args.reach} mm, layer {args.layer} mm)", size=12, mono=False)
-    svg.text(page_pad, 32, f"rippled {stats['rippled_mm2']:.0f} mm\u00b2 over "
-             f"{stats['ripple_layers']} layer(s), {stats['max_ring']} ring(s) deep; "
-             f"{stats['unreached_mm2']:.0f} mm\u00b2 left for Orca", size=10, mono=False)
+    svg.text(page_pad, 18, f"Wave Overhangs ({args.mode} mode) -- {name}  "
+             f"(threshold {args.threshold}\u00b0, layer {args.layer} mm"
+             + (f", ring pitch {cfg['ring_pitch_mm']} mm" if args.mode == "skin"
+                else f", ramp {args.ramp}\u00b0, reach {args.reach} mm") + ")",
+             size=12, mono=False)
+    if args.mode == "skin":
+        svg.text(page_pad, 32, f"rippled {stats['grooved_mm2']:.0f} mm\u00b2 of underside "
+                 f"({stats['rings']} ring(s), {stats['dashes']} dash(es)) -- part shape unchanged",
+                 size=10, mono=False)
+    else:
+        svg.text(page_pad, 32, f"rippled {stats['rippled_mm2']:.0f} mm\u00b2 over "
+                 f"{stats['ripple_layers']} layer(s), {stats['max_ring']} ring(s) deep; "
+                 f"{stats['unreached_mm2']:.0f} mm\u00b2 left for Orca", size=10, mono=False)
     top = 44
     g = svg.group(f"translate({page_pad} {top})")
     plan_h = draw_plan(svg, U, allowed, args.cols,

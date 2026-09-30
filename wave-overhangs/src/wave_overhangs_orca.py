@@ -4,86 +4,86 @@
 #
 # [tool.orcaslicer.plugin]
 # name = "Wave Overhangs"
-# description = "Ripples flat overhangs into terraces that conform to the support perimeter and grow outward layer by layer, so they print without support material. Orca's own supports, if on, only appear where the ripples could not reach."
+# description = "Ripples the bottom surface of flat overhangs: thin dashed grooves cut into the overhang's skin, conforming to the supported perimeter and running outward as clean offset arcs. The part keeps its exact shape. Optional ramp mode trades a wedge of material for a printable terrace."
 # author = "support-fins repo (Orca lane pattern; wave strategy after Andersons et al. and the OrcaSlicer-WaveOverhangs fork)"
-# version = "0.1.0"
+# version = "0.2.0"
 # ///
-"""Wave Overhangs for OrcaSlicer -- ripples carved at slice time.
+"""Wave Overhangs for OrcaSlicer -- ripple the overhang's underside at slice time.
 
-WHAT IT DOES
+WHAT IT DOES (default: skin mode)
   A flat overhang -- the underside of a ceiling, a tabletop standing on a
-  stem, the roof of a tunnel -- normally prints as one layer of material
-  hanging in mid-air, and sags. This plugin replaces it with RIPPLES: on the
-  overhang's first layer only a narrow seed band along the supported
-  perimeter is kept, and every following layer may grow the printed
-  footprint one `step` further outward, following that perimeter's shape
-  exactly. Each new ring rests on the ring the layer below just printed, so
-  nothing is printed over air: the flat ceiling becomes a terraced ramp that
-  climbs at a printable angle. The ripples conform to the support perimeter
-  and propagate outward like waves on a pond -- around corners, around
-  holes, whatever the perimeter does.
+  stem, the roof of a tunnel -- normally prints as one flat sheet of material
+  hanging in mid-air. This plugin leaves the part's shape exactly as the
+  model defines it and changes only the PATTERN of that bottom surface: it
+  cuts thin, dashed grooves into the overhang's first layer, arranged as
+  RIPPLES -- concentric rings that conform to the supported perimeter and run
+  outward, following whatever shape that perimeter has (around corners,
+  around hole rims), until they run out of overhang. What prints is a rippled
+  skin: solid ridges between groove dashes, every ridge joined to its
+  neighbours by solid bridges, the supported band and the overhang's outer
+  rim kept solid so the part's outline and walls are untouched.
 
-  This is the same idea as the wave-overhang strategy of Andersons et al.
-  ("Wave-inspired path-planning for support-free horizontal overhangs in
-  FDM") and the OrcaSlicer-WaveOverhangs forks, expressed at the only seam
-  a Python plugin can write to.
+  The grooves are the only material removed. Each one is a capsule thinner
+  than `groove_width_mm`, one layer deep (the layer above fills over it),
+  never within `edge_band_mm` of the part's surface, and the skin is checked
+  to still be one connected piece after they are cut. Nothing is added
+  anywhere. That is the whole edit: same part, rippled underside.
+
+WHY GROOVES, AND WHY DASHED
+  The wave-overhang forks print their rings as custom toolpaths inside one
+  layer, each ring squished against the previous ring -- lateral anchoring.
+  A slice-polygon plugin cannot author toolpaths: per-layer polygons are its
+  only language, and polygons that touch are unioned by the slicer, so
+  "adjacent rings" cannot be expressed as separate paths. Grooves are what
+  CAN be expressed: they force Orca's own perimeters to trace the ripple
+  arcs, and the dashes keep every ridge tied to the supported band so the
+  pattern never floats. (True same-layer wave toolpaths are the lane of
+  support-fins/plugins/orca-wave in this repo, which splices G-code.)
 
 THE SEAM
   The one the Support Fins plugin uses: orca.slicing.Step.posSlice, after
   Orca has sliced the part into per-layer polygons but before perimeters,
-  infill, supports and G-code. Unlike fins, which ADD polygons, this plugin
-  only ever SHRINKS them -- a ripple is material printed one layer later
-  than the model asked for. Everything downstream is then Orca's own logic
-  applied to the rippled solid: walls, infill, bridge detection, overhang
-  speeds. Supports left on are generated for the geometry that remains, so
-  they appear only where the ripples could not reach -- wave-aware support
-  integration without touching support code.
+  infill, supports and G-code. Everything downstream is then Orca's own
+  logic applied to the rippled solid -- walls, infill, bridge detection,
+  overhang speeds. Supports left on are generated from the same geometry as
+  always: the plugin no longer removes any region they would be needed for.
 
   Detection is footprint-based, like the wave forks' "the wave only fills
   the unsupported portion of each layer": the overhang region of layer j is
-  what its slice has that layer j-1 did not. A region counts as FLAT when
-  it is wider than h / tan(threshold_deg) -- a 45-degree slope grows
-  0.2 mm per 0.2 mm layer and is never touched; a ceiling appears all at
-  once and ripples. Shrinking footprints (treads, dome tops) never grow, so
-  top surfaces are never touched either.
+  what its slice has that layer j-1 did not, and only regions WIDER than
+  h / tan(threshold_deg) count as flat -- a 45-degree slope grows 0.2 mm per
+  0.2 mm layer and is never touched; a ceiling appears all at once and
+  ripples. Shrinking footprints (treads, dome tops) never grow, so top
+  surfaces are never touched either.
 
-WHY ONE RING PER LAYER (and what that costs)
-  The forks print their rings as custom paths inside a single layer, each
-  squished against the previous ring at the same Z. A Python plugin cannot
-  write toolpaths, only slice polygons, so this is the planar form: ring k
-  of the wave prints on layer k. Two consequences, both bounded and both
-  stated up front:
-    * the overhang's underside becomes a terraced ramp instead of a flat
-      ceiling. The ramp climbs layer_height per step of reach; it is
-      material REMOVED from the model, never more than the solid above the
-      overhang allows (a ripple stops at the model's top surface: deferring
-      past the last layer that still contains the point is simply not
-      allowed) and never more than max_reach_mm;
-    * where the ramp cannot arrive in time -- thin roofs, overhangs wider
-      than the reach -- the leftover prints on the overhang's own layer,
-      exactly as stock Orca would have sliced it (bridging, or on Orca
-      supports if they are enabled).
-
-  The ripples show on the outside of the part too: near the overhang the
-  outer wall steps out with the terraces instead of rising vertically. On
-  visible ceilings that is the point; on hidden ones nobody will see it.
+RAMP MODE (opt in, "mode": "ramp")
+  The earlier experiment, kept because it is the only support-free variant:
+  grow the printed footprint one ring per LAYER so every ring rests on the
+  ring below -- the flat ceiling becomes a printable terraced ramp, at the
+  cost of removing the wedge under the ramp from the part (and its outer
+  wall steps with it). Off by default because it changes the part's shape;
+  see the README for the trade before using it.
 
 GUARANTEES (each one is pinned by a test)
   * Nothing is added: every layer's printed polygons are a subset of that
     layer's model slices.
-  * Nothing is lost: the union of the printed layers equals the union of
-    the model's slices. Every deferred point either prints when its ripple
-    reaches it, or is flushed back in at its last opportunity (the final
-    layer of the solid there).
-  * The first layer (bed or raft) is never touched.
+  * Nothing is removed except the grooves: thin (never wider than
+    groove_width_mm), one layer deep, only on layers that introduce a flat
+    overhang, never touching the outer rim or the supported band, and the
+    skin stays connected.
+  * The first layer (bed or raft) is never touched, and layers without a
+    fresh flat overhang are left bit-identical.
   * Surfaces steeper than threshold_deg from horizontal are never touched.
+  * In ramp mode instead: nothing added, nothing lost at all (the union of
+    printed layers equals the model's), first layer and steep surfaces
+    untouched.
 
 LIMITS
   * The ripples appear in the sliced Preview, not in the Prepare 3D view.
-  * The rings print at your configured wall / overhang speeds. Orca's
-    overhang-speed logic sees them (each ring is a genuine small overhang),
-    so configure that -- and your cooling -- before pushing ramp_angle_deg
-    past ~55.
+  * Skin mode changes the surface PATTERN; it does not by itself make a
+    truly flat wide overhang printable -- that is ramp mode's trade, or
+    supports. What the grooves do give the skin is relief joints and a
+    shorter unsupported span per ridge.
   * Vase mode: don't.
 """
 import json
@@ -100,21 +100,31 @@ except ImportError:  # pragma: no cover - surfaced to the user in execute()
 
 try:
     import shapely
-    from shapely.geometry import Polygon as _SPoly
-    from shapely.ops import unary_union
+    from shapely.geometry import LineString, Polygon as _SPoly
+    from shapely.ops import unary_union, substring
 except ImportError:  # pragma: no cover - surfaced to the user in execute()
     shapely = None
 
 _DEFAULTS = {
     "enabled": True,
     "apply_to": "all",           # "all" | "no-supports": parts to ripple
+    "mode": "skin",              # "skin": pattern the underside, keep the shape
+                                 # "ramp": printable terraces, changes the shape
+    # --- shared -----------------------------------------------------------
     "threshold_deg": 30.0,       # ripple surfaces flatter than this (from horizontal)
+    "min_area_mm2": 1.0,         # ignore overhang patches smaller than this
+    # --- skin mode --------------------------------------------------------
+    "ring_pitch_mm": 1.2,        # centre-to-centre spacing of ripple rings
+    "groove_width_mm": 0.25,     # groove width (must exceed ~0.1 mm or the
+                                 # slicer's slice_closing_radius closes it)
+    "dash_mm": 4.0,              # groove dash length along a ring
+    "bridge_mm": 1.2,            # solid bridge between dashes (keeps the skin whole)
+    "edge_band_mm": 0.8,         # solid rim kept at the overhang's outer boundary
+    "solid_band_mm": 0.6,        # solid band kept at the supported perimeter
+    # --- ramp mode --------------------------------------------------------
     "ramp_angle_deg": 45.0,      # steepness of the ripple ramp (from horizontal)
     "max_reach_mm": 10.0,        # how far a ripple may climb out from the perimeter
-    "min_area_mm2": 1.0,         # ignore overhang patches smaller than this
-    "anchor_mm": 0.1,            # seed band width: fresh area this close to the
-                                 # previous layer prints at once (also the floor on
-                                 # ring width when ramp_angle is very steep)
+    "anchor_mm": 0.1,            # seed band width along the supported perimeter
 }
 
 
@@ -133,6 +143,13 @@ def _empty():
 # same. 2 um is 50x below the envelope tolerance the tests hold us to.
 _CLEAN_TOL = 0.002
 
+# The ring fronts the grooves follow are drawn with 64 segments per quadrant,
+# so a 20 mm offset deviates from its true arc by ~1.5 um: the ripples read as
+# clean arcs in the preview, not faceted ones (the complaint that shaped this
+# version). Band/area work stays at shapely's coarse default -- it is only
+# ever a pre-check, the capsules are clipped to the valid region anyway.
+_FRONT_QUAD = 64
+
 
 def _clean(g):
     if g is None or g.is_empty:
@@ -145,12 +162,7 @@ def _clean(g):
 
 
 def _buf(g, r):
-    """Dilate by r with round joins.
-
-    Round joins make this a true distance field: ring k of the wave is the
-    exact k*step offset contour of the perimeter it grows from, corners
-    rounded, concavities followed -- "conforming to the support perimeter"
-    is a property of the maths, not an approximation we tune."""
+    """Dilate by r with round joins (coarse -- area-level work only)."""
     if g is None or g.is_empty or r <= 0.0:
         return g
     return _clean(g.buffer(r))
@@ -181,15 +193,220 @@ def _area(g):
     return 0.0 if g is None or g.is_empty else float(g.area)
 
 
+def _n_components(g):
+    return len(_polygons(g))
+
+
+def _ring_lines(geom):
+    """Closed contour LineStrings of a polygonal geometry (outer + holes)."""
+    out = []
+    for poly in _polygons(geom):
+        try:
+            out.append(LineString(poly.exterior.coords))
+        except Exception:
+            pass
+        for r in poly.interiors:
+            try:
+                out.append(LineString(r.coords))
+            except Exception:
+                pass
+    return out
+
+
+def _flat_parts(new_area, wide_w, min_area):
+    """Components of `new_area` wide enough to count as a FLAT overhang.
+
+    An erosion test: the region must contain a disk of radius wide_w/2, where
+    wide_w is the per-layer growth of a surface at threshold_deg from
+    horizontal. Thin lips of steeper surfaces contain no such disk and print
+    at once, like stock Orca."""
+    parts = []
+    for c in _polygons(new_area):
+        if c.area < min_area:
+            continue
+        if c.buffer(-max(wide_w, 1e-3) / 2.0).is_empty:
+            continue
+        parts.append(c)
+    return _union(parts)
+
+
 def plan_ripples(slices_mm, heights_mm, cfg):
     """Turn a stack of model slices into the stack that may actually print.
+
+    Dispatches on cfg["mode"]: "skin" (default) patterns each layer's fresh
+    flat overhang with ripple grooves and changes nothing else; "ramp" grows
+    the printed footprint one ring per layer (see plan_ramp_ripples).
 
     slices_mm:  per layer, the union of the object's slice polygons (shapely,
                 millimetres, any frame -- only differences matter).
     heights_mm: per layer, the layer height (mm).
-    Returns (allowed_per_layer, stats): `allowed[j]` is the shapely geometry
-    layer j may print -- a subset of slices_mm[j], and never empty where the
-    model has material.
+    Returns (allowed_per_layer, stats); `allowed[j]` is what layer j may print.
+    """
+    mode = str(cfg.get("mode", "skin") or "skin").strip().lower()
+    if mode in ("ramp", "terraces"):
+        return plan_ramp_ripples(slices_mm, heights_mm, cfg)
+    return plan_skin_ripples(slices_mm, heights_mm, cfg)
+
+
+# ---------------------------------------------------------------------------------
+# Skin mode: ripple the overhang's underside, keep the part's shape
+# ---------------------------------------------------------------------------------
+
+def _groove_ring(prev, d, g, dash_len, bridge_len, phase, valid):
+    """Groove dashes along the offset contour of `prev` at distance `d`.
+
+    A dash is a contour sub-line buffered by g/2 with round caps and clipped
+    to `valid` -- a capsule that follows the contour exactly, so every dash
+    IS a clean arc of the perimeter's offset, whatever shape the perimeter is
+    (square, L-shaped, around holes). Dashes never overlap: same-ring dashes
+    are separated by `bridge_len`, and adjacent rings are a pitch apart, far
+    more than the groove width -- so nothing wider than g is ever removed.
+    Returns (dashes geometry, dash count)."""
+    period = dash_len + bridge_len
+    if period <= 0.0 or g <= 0.0:
+        return _empty(), 0
+    front = prev.buffer(d, quad_segs=_FRONT_QUAD) if d > 0.0 else prev
+    caps = []
+    for line in _ring_lines(front):
+        L = line.length
+        if L < 0.6:
+            continue
+        start = phase % period
+        i = 0
+        while True:
+            a = start + i * period
+            i += 1
+            if a >= L:
+                break
+            b = min(a + dash_len, L)
+            if b - a < 0.5:
+                continue
+            seg = substring(line, a, b)
+            if seg.is_empty:
+                continue
+            cap = seg.buffer(g / 2.0, quad_segs=12)
+            if cap.is_empty:
+                continue
+            cap = cap.intersection(valid)
+            if cap.is_empty or cap.area < 0.02:
+                continue
+            caps.append(cap)
+    return _union(caps), len(caps)
+
+
+def plan_skin_ripples(slices_mm, heights_mm, cfg):
+    """Pattern each layer's fresh flat overhang with ripple grooves.
+
+    Per layer j:
+      R      = cur - prev (grown by 0.05 mm): the overhang region, the part of
+               this slice with nothing below it
+      flat   = the components of R wide enough to be a FLAT overhang
+      valid  = flat, kept `edge_band` inside the part's boundary: grooves
+               never approach the outer rim or hole rims
+      rings  = offset contours of `prev` (the supported footprint) at
+               d0, d0+pitch, d0+2*pitch, ... while any valid material remains
+               beyond them -- the ripples, conforming to the supported
+               perimeter and running outward until the overhang ends
+      grooves= dashed capsules along those contours, clipped to valid
+      allowed= cur - grooves
+
+    Invariants (they are the point of the shape of this loop):
+      allowed[j] <= slices_mm[j]                          -- never add material
+      cur - allowed consists of capsules no wider than groove_width
+      cur - allowed never touches the outer rim (edge_band) or the supported
+      band (solid_band), and never disconnects the skin
+    """
+    n = len(slices_mm)
+    U = [s if s is not None and not s.is_empty else _empty() for s in slices_mm]
+    thr = math.radians(max(1.0, min(89.0, float(cfg["threshold_deg"]))))
+    min_area = max(0.0, float(cfg["min_area_mm2"]))
+    pitch = max(0.4, float(cfg["ring_pitch_mm"]))
+    g = min(max(0.12, float(cfg["groove_width_mm"])), 0.6 * pitch)
+    dash_len = max(0.5, float(cfg["dash_mm"]))
+    bridge_len = max(0.3, float(cfg["bridge_mm"]))
+    edge_band = max(0.1, float(cfg["edge_band_mm"]))
+    solid_band = max(0.3, float(cfg["solid_band_mm"]))
+    max_rings = 64
+
+    stats = {
+        "layers": n, "mode": "skin",
+        "patterned_layers": 0,     # layers that got groove dashes
+        "rings": 0,                # groove rings cut
+        "dashes": 0,               # groove dashes cut
+        "grooved_mm2": 0.0,        # total area removed by grooves
+        "overhang_mm2": 0.0,       # total flat-overhang area patterned
+        "connectivity_fallbacks": 0,  # layers left unpatterned to keep the skin whole
+        "touched_layers": 0,
+    }
+
+    allowed = []
+    prev = _empty()
+    for j in range(n):
+        cur = U[j]
+        # The bed layer, empty layers and layers with nothing below them
+        # (a floating island has no supported perimeter to ripple from) pass
+        # through untouched. So does anything with no fresh footprint.
+        if j == 0 or cur.is_empty or prev.is_empty or cur.equals(prev):
+            allowed.append(cur)
+            prev = cur
+            continue
+
+        h = max(1e-6, float(heights_mm[j]))
+        wide_w = h / math.tan(thr)
+        R = cur.difference(_buf(prev, 0.05))
+        flat = _flat_parts(R, wide_w, min_area)
+        valid = flat.intersection(cur.buffer(-edge_band)) if edge_band > 0.0 else flat
+
+        grooves = _empty()
+        if not valid.is_empty and valid.area >= min_area:
+            d0 = solid_band + g / 2.0
+            pieces = []
+            for k in range(max_rings):
+                d = d0 + k * pitch
+                beyond = valid.difference(_buf(prev, max(0.0, d - g / 2.0 - 0.05)))
+                if beyond.is_empty:
+                    break           # the overhang is fully rippled out to here
+                band = valid.intersection(_buf(prev, d + g / 2.0)) \
+                             .difference(_buf(prev, max(0.0, d - g / 2.0)))
+                if band.is_empty or band.area < 0.02:
+                    continue        # this ring finds no material (e.g. a gap in
+                                    # the overhang); later rings may again
+                phase = (k % 2) * (dash_len + bridge_len) / 2.0   # stagger rings
+                dashes, count = _groove_ring(prev, d, g, dash_len, bridge_len,
+                                             phase, valid)
+                if not dashes.is_empty:
+                    pieces.append(dashes)
+                    stats["rings"] += 1
+                    stats["dashes"] += count
+            grooves = _union(pieces)
+
+        allow = cur
+        if not grooves.is_empty:
+            trial = cur.difference(grooves)
+            if _n_components(trial) != _n_components(cur):
+                # A dash would have severed a neck or swallowed an island:
+                # never trade the skin's integrity for the pattern.
+                stats["connectivity_fallbacks"] += 1
+            else:
+                allow = trial
+                stats["patterned_layers"] += 1
+                stats["grooved_mm2"] += _area(cur) - _area(trial)
+                stats["overhang_mm2"] += _area(flat)
+                if _area(cur) - _area(trial) > 1e-9:
+                    stats["touched_layers"] += 1
+
+        allowed.append(allow)
+        prev = allow
+    return allowed, stats
+
+
+# ---------------------------------------------------------------------------------
+# Ramp mode (opt in): one ring per layer, a printable ramp at the cost of a wedge
+# ---------------------------------------------------------------------------------
+
+def plan_ramp_ripples(slices_mm, heights_mm, cfg):
+    """Grow the printed footprint one ring per layer so each ring rests on the
+    ring below (the support-free variant; changes the part's shape).
 
     State machine, one pass bottom-up:
       reached   what the previous layer actually printed (the wavefront's base)
@@ -199,9 +416,8 @@ def plan_ripples(slices_mm, heights_mm, cfg):
       grown      = cur within `step` of `reached` -- this layer's ring, the seed
                   band, and everything continuous with the layer below
       new_area   = cur beyond `anchor` of `reached` -- the fresh footprint
-      wide       = components of new_area wide enough to count as FLAT overhang
-                  (an erosion test: the region must contain a disk of radius
-                  h / 2 tan(threshold)); thin lips of steep slopes print at once
+      wide       = components of new_area wide enough to count as FLAT overhang;
+                  thin lips of steep slopes print at once
       cand       = wide beyond this layer's ring: the ripple candidates
       defer_now  = the part of cand the wave will reach while the solid is still
                   there -- ring k prints at layer j+k-1, so a point may wait only
@@ -212,7 +428,7 @@ def plan_ripples(slices_mm, heights_mm, cfg):
                   its last, candidates the wave cannot reach in time, and
                   (safety valve) pending stranded beyond the reach.
 
-    Invariants (they are the point of the shape of this loop):
+    Invariants:
       allowed[j] <= slices_mm[j]                     -- never add material
       pending <= next layer's slices                 -- nothing waits past its solid
       allowed[j] U pending >= slices_mm[j]           -- nothing is ever lost
@@ -235,7 +451,7 @@ def plan_ripples(slices_mm, heights_mm, cfg):
         above[k] = acc
 
     stats = {
-        "layers": n,
+        "layers": n, "mode": "ramp",
         "ripple_layers": 0,      # layers that deferred overhang area
         "rippled_mm2": 0.0,      # total area that waited for its ring
         "unreached_mm2": 0.0,    # overhang the wave could not cover (printed stock)
@@ -274,16 +490,7 @@ def plan_ripples(slices_mm, heights_mm, cfg):
         anchored = cur.intersection(_buf(reached, anchor)) if anchor > 0 else cur.intersection(reached)
         new_area = cur.difference(_buf(reached, anchor)) if anchor > 0 else cur.difference(reached)
 
-        # Split the fresh footprint into flat overhang (ripple candidates) and
-        # thin lips of steep surfaces (print at once, like stock Orca).
-        wide_parts = []
-        for c in _polygons(new_area):
-            if c.area < min_area:
-                continue
-            if c.buffer(-max(wide_w, 1e-3) / 2.0).is_empty:
-                continue          # no disk of radius wide_w/2 fits: a steep lip
-            wide_parts.append(c)
-        wide = _union(wide_parts)
+        wide = _flat_parts(new_area, wide_w, min_area)
         narrow = new_area.difference(wide)
 
         cand = wide.difference(grown).difference(anchored)
@@ -453,25 +660,41 @@ def inject_ripples(print_object, cfg, unit, log=None):
         return "no slices found"
     heights = _slice_heights(layers)
     allowed, stats = plan_ripples(U, heights, cfg)
+    mode = stats.get("mode", "skin")
     log.update({
         "layers": len(layers),
         "layer_height": round(float(heights[1]) if len(heights) > 1 else heights[0], 4),
-        "ripple_layers": stats["ripple_layers"],
-        "rippled_mm2": round(stats["rippled_mm2"], 3),
-        "unreached_mm2": round(stats["unreached_mm2"], 3),
-        "flushed_mm2": round(stats["flushed_mm2"], 3),
-        "max_ring": stats["max_ring"],
+        "mode": mode,
+        "patterned_layers": stats.get("patterned_layers", 0),
+        "rings": stats.get("rings", 0),
+        "dashes": stats.get("dashes", 0),
+        "grooved_mm2": round(stats.get("grooved_mm2", 0.0), 3),
+        "ripple_layers": stats.get("ripple_layers", 0),
+        "max_ring": stats.get("max_ring", 0),
     })
-    # Conservation check on the model's own terms: nothing added, nothing lost.
-    # (Rounding to Orca's 1e-6 mm grid can shave fractions of a mm^2; a mm^2 is
-    # already far below a nozzle's business.)
+    # Conservation check on the model's own terms. Skin mode's only legitimate
+    # removal is the groove area it just accounted for, per layer (the UNION of
+    # printed layers often loses nothing at all: the layer above a groove prints
+    # the model's full footprint, so the grooves only texture the underside).
+    # Ramp mode must not lose or add anything anywhere. Anything else refuses
+    # to touch the layers.
     before = _union(U)
     after = _union(allowed)
-    lost = _area(before.difference(after))
+    union_lost = _area(before.difference(after))
     added = _area(after.difference(before))
-    log["conservation"] = {"lost_mm2": round(lost, 6), "added_mm2": round(added, 6)}
-    if lost > 0.05 or added > 0.05:   # pragma: no cover - guards a broken edit
-        raise RuntimeError(f"ripple plan fails conservation: lost {lost:.3f} mm^2, added {added:.3f} mm^2")
+    removed = sum(_area(u.difference(a)) for a, u in zip(allowed, U))
+    log["conservation"] = {"removed_mm2": round(removed, 6),
+                           "union_lost_mm2": round(union_lost, 6),
+                           "added_mm2": round(added, 6)}
+    grooved = float(stats.get("grooved_mm2", 0.0))
+    if mode == "skin":
+        if added > 0.05 or union_lost > grooved + 0.05 or abs(removed - grooved) > 0.05:
+            raise RuntimeError(f"ripple plan fails conservation: added {added:.3f} mm^2, "
+                               f"removed {removed:.3f} mm^2 vs {grooved:.3f} mm^2 of grooves, "
+                               f"union lost {union_lost:.3f} mm^2")
+    else:
+        if union_lost > 0.05 or added > 0.05:
+            raise RuntimeError(f"ripple plan fails conservation: lost {union_lost:.3f} mm^2, added {added:.3f} mm^2")
 
     touched = 0
     for L, a, u in zip(layers, allowed, U):
@@ -479,8 +702,15 @@ def inject_ripples(print_object, cfg, unit, log=None):
             continue           # layer unchanged: leave Orca's polygons bit-exact
         touched += _clip_layer(L, a, unit)
     log["touched_layers"] = touched
+    if mode == "skin":
+        if stats["patterned_layers"] <= 0:
+            return "no flat overhangs to ripple"
+        return (f"rippled the underside of {stats['patterned_layers']} layer(s): "
+                f"{stats['rings']} ring(s), {stats['dashes']} dash(es), "
+                f"{stats['grooved_mm2']:.0f} mm^2 of grooves -- part shape unchanged "
+                f"({touched} layer(s) edited)")
     if stats["rippled_mm2"] <= 0.0:
-        return "no flat overhangs needed ripples"
+        return "no flat overhangs to ripple"
     return (f"rippled {stats['rippled_mm2']:.0f} mm^2 of flat overhang across "
             f"{stats['ripple_layers']} layer(s), {stats['max_ring']} ring(s) deep; "
             f"{stats['unreached_mm2']:.0f} mm^2 left for Orca "
@@ -554,9 +784,9 @@ class WaveOverhangsCheck(orca.script.ScriptPluginCapabilityBase):
 
     Checks the dependency install, runs the geometry core on a synthetic
     flat overhang (a table top standing on a stem) and reports what it would
-    do, without needing a slice: ripples found, rings, conservation. The
-    first failure a user would otherwise see is mid-slice; this catches it
-    first, the same job the Support Fins setup check does for fins."""
+    do, without needing a slice. The first failure a user would otherwise
+    see is mid-slice; this catches it first, the same job the Support Fins
+    setup check does for fins."""
 
     def get_name(self):
         return "Wave Overhangs - Check setup"
@@ -596,27 +826,31 @@ class WaveOverhangsCheck(orca.script.ScriptPluginCapabilityBase):
     @staticmethod
     def _self_test():
         """A tabletop on a stem, sliced into 4 synthetic layers of 0.2 mm: the
-        ceiling must defer, and nothing may be lost or added."""
+        ceiling's underside must get grooves -- thin, rim-safe, connected --
+        and nothing may be added anywhere."""
         from shapely.geometry import box
         cfg = dict(_DEFAULTS)
-        cfg["max_reach_mm"] = 1.0     # small so the test is quick and sharp
         stem = box(-5, -5, 5, 5)
         top = box(-15, -15, 15, 15)
         U = [stem, stem, top, top]
         allowed, stats = plan_ripples(U, [0.2] * 4, cfg)
+        g = float(cfg["groove_width_mm"])
         before, after = _union(U), _union(allowed)
-        lost = _area(before.difference(after))
         added = _area(after.difference(before))
-        if lost > 1e-6 or added > 1e-6:
-            return False, (f"conservation broken (lost {lost:.6f} mm^2, "
-                           f"added {added:.6f} mm^2)")
-        if stats["rippled_mm2"] <= 0.0:
-            return False, "the synthetic ceiling was not deferred"
-        # layer 2 (the ceiling) must print less than the full top; layer 3 grows
-        if _area(allowed[2]) >= _area(top) - 1e-6 or _area(allowed[3]) <= _area(allowed[2]) + 1e-6:
-            return False, "the ripple does not grow outward layer by layer"
-        return True, (f"ok -- {stats['rippled_mm2']:.1f} mm^2 deferred, "
-                      f"{stats['max_ring']} ring(s), conservation exact")
+        if added > 1e-6:
+            return False, f"conservation broken (added {added:.6f} mm^2)"
+        if stats["patterned_layers"] != 1 or stats["rings"] < 1:
+            return False, "the synthetic ceiling was not rippled"
+        removed = U[2].difference(allowed[2])
+        if removed.is_empty:
+            return False, "no grooves on the ceiling layer"
+        for c in _polygons(removed):
+            if not c.buffer(-(g / 2.0 + 0.02)).is_empty:
+                return False, "a groove is wider than the configured width (a chunk)"
+        if _n_components(allowed[2]) != _n_components(U[2]):
+            return False, "the grooves disconnected the skin"
+        return True, (f"ok -- {stats['rings']} ring(s), {stats['dashes']} dash(es), "
+                      f"{stats['grooved_mm2']:.1f} mm^2 of grooves, shape unchanged")
 
 
 @orca.plugin
