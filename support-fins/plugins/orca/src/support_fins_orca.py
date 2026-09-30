@@ -7,7 +7,6 @@
 # description = "Adds printfins.com breakaway support fins under overhangs at slice time. Parts with Orca supports turned on are left alone."
 # author = "Matthew Trahan (engine), J (Orca plugin)"
 # version = "0.1.0"
-# type = "slicing-pipeline"
 # ///
 """Support Fins for OrcaSlicer -- fins added at slice time.
 
@@ -38,9 +37,10 @@ THE ENGINE
   bundled from web/*.js with esbuild and run in an embedded V8 (mini-racer) --
   so the fins match the website instead of being a re-implementation that drifts.
 
-LIMITS (spike)
+LIMITS
   * The fins appear in the sliced Preview, not in the Prepare 3D view.
-  * The slicing-pipeline API is marked research/experimental by Orca.
+  * This targets the current Orca Python plugin system. Older 2.4-era forks may
+    have only classic post-processing scripts and will not load this file.
   * One fin set per print object (all instances of an object share it).
 """
 import atexit
@@ -549,7 +549,94 @@ def _write_log(entry):
         pass
 
 
+# ---------------------------------------------------------------------------------
+# Script capability: a Plugins-dialog smoke test for new Orca installs
+# ---------------------------------------------------------------------------------
+class SupportFinsSetupCheck(orca.script.ScriptPluginCapabilityBase):
+    """Run from Plugins -> Support Fins -> Run to verify the latest plugin API.
+
+    The actual fin injector is a slicing-pipeline capability, so the first failure
+    users see would otherwise be mid-slice. This script capability gives a quick
+    checklist: dependency install, engine bundle, host mesh read, and model stats.
+    """
+
+    def get_name(self):
+        return "Support Fins - Check setup"
+
+    def execute(self):
+        lines = ["Support Fins setup check"]
+        if np is None:
+            return orca.ExecutionResult.failure(
+                orca.PluginResult.RecoverableError,
+                "Support Fins needs numpy. Orca should install it from the plugin metadata; "
+                "try disabling/enabling the plugin or reinstalling it.")
+        try:
+            _engine_ctx()
+            lines.append("engine: bundled printfins.com engine loaded")
+        except Exception as e:
+            return orca.ExecutionResult.failure(
+                orca.PluginResult.RecoverableError,
+                f"Support Fins engine failed to load: {type(e).__name__}: {e}")
+        try:
+            model = orca.host.model()
+            objects = list(model.objects())
+        except Exception as e:
+            return orca.ExecutionResult.failure(
+                orca.PluginResult.RecoverableError,
+                f"orca.host.model() failed: {type(e).__name__}: {e}")
+        if not objects:
+            lines.append("model: no objects on the plate (load a part, then run this again)")
+            return orca.ExecutionResult.success("\n".join(lines))
+        lines.append(f"model: {len(objects)} object(s) on the plate")
+        total_faces = 0
+        for oi, obj in enumerate(objects[:8]):
+            vols = _safe_list(lambda: obj.volumes())
+            insts = _safe_list(lambda: obj.instances())
+            inst_msg = f", {len(insts)} instance(s)" if insts is not None else ""
+            lines.append(f"object {oi}: {len(vols)} volume(s){inst_msg}")
+            for vi, vol in enumerate(vols[:8]):
+                try:
+                    mesh = vol.mesh()
+                    V = np.asarray(mesh.vertices(), dtype=np.float64)
+                    T = np.asarray(mesh.triangles(), dtype=np.int64)
+                    total_faces += int(len(T))
+                    bbox = _volume_bbox_mm(V, vol, insts)
+                    lines.append(
+                        f"  volume {vi}: {len(V):,} vertices, {len(T):,} faces, "
+                        f"bbox {bbox} mm")
+                except Exception as e:
+                    lines.append(f"  volume {vi}: mesh read failed ({type(e).__name__}: {e})")
+        if len(objects) > 8:
+            lines.append(f"... {len(objects) - 8} more object(s) not listed")
+        lines.append(f"ready: host mesh read works; {total_faces:,} face(s) visible")
+        lines.append("next: choose the Support Fins slicing capability in a process preset under Others -> Slicing Pipeline Plugin")
+        return orca.ExecutionResult.success("\n".join(lines))
+
+
+def _safe_list(fn):
+    try:
+        return list(fn())
+    except Exception:
+        return []
+
+
+def _volume_bbox_mm(V, vol, insts):
+    if len(V) == 0:
+        return [0.0, 0.0, 0.0]
+    if insts:
+        try:
+            # Host Model graph convention from Orca's docs: instance @ volume,
+            # row vectors transformed with M.T.
+            M = np.asarray(insts[0].matrix(), dtype=np.float64) @ np.asarray(vol.matrix(), dtype=np.float64)
+            V = V @ M[:3, :3].T + M[:3, 3]
+        except Exception:
+            pass
+    size = V.max(axis=0) - V.min(axis=0)
+    return np.round(size, 3).tolist()
+
+
 @orca.plugin
 class SupportFinsPlugin(orca.base):
     def register_capabilities(self):
         orca.register_capability(SupportFinsSlicing)
+        orca.register_capability(SupportFinsSetupCheck)
