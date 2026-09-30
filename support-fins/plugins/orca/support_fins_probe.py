@@ -9,6 +9,13 @@
 # version = "0.1.0"
 # ///
 """
+LEGACY PROBE — kept only as a lightweight read-only smoke test.
+
+The current integration is `src/support_fins_orca.py`, a slicing-pipeline plugin that
+injects fin polygons at `Step.posSlice`.  This older probe predates that write path and
+its "cannot place fins" comments should be read as historical notes about the host model
+API, not the current plugin plan.
+
 SPIKE / PROBE — does OrcaSlicer's plugin sandbox give us what printfins.com needs?
 
 The website's whole trick is MESH ANALYSIS: read a model's triangles, find the

@@ -149,6 +149,30 @@ Tests (Deno for the JS engine):
 deno test --allow-read tests/
 ```
 
+## The OrcaSlicer plugin lane
+
+Recent Orca builds have a Python plugin system with slicing-pipeline hooks.  The Orca lane in
+`plugins/orca/` targets that current API: it bundles the same Support Fins engine used by the
+website and injects fin cross-sections at `Step.posSlice`, before Orca generates walls, infill,
+wave-overhang paths or G-code.
+
+On Windows, from the repository root, run:
+
+```bat
+install-orca-support-fins.bat
+```
+
+That builds and copies the plugin into Orca's `orca_plugins` directory.  Manual build/install
+is still available:
+
+```bash
+python3 plugins/orca/build.py
+```
+
+Then install `plugins/orca/build/support_fins_orca.py` through Orca's **File > Plugins >
+Install local plugin** flow.  See [`plugins/orca/README.md`](plugins/orca/README.md) for the
+full setup and test loop.
+
 ## The PrusaSlicer plugin (exploratory — not currently working)
 
 **Status: exploratory. This does not currently work — treat it as a research spike, not a

@@ -10,6 +10,7 @@ import importlib.util
 import json
 import pathlib
 import sys
+import types
 
 import numpy as np
 import pytest
@@ -213,10 +214,24 @@ def test_errors_are_reported_not_raised(monkeypatch):
     assert res.status is fake_orca.PluginResult.RecoverableError and "boom" in res.message
 
 
-def test_plugin_registers_its_capability():
+def test_plugin_registers_its_capabilities():
     ORCA.registered.clear()
     SF.SupportFinsPlugin().register_capabilities()
-    assert ORCA.registered == [SF.SupportFinsSlicing]
+    assert ORCA.registered == [SF.SupportFinsSlicing, SF.SupportFinsSetupCheck]
+
+
+def test_setup_check_script_reports_host_mesh(monkeypatch):
+    part = trimesh.creation.box((10, 20, 30))
+    obj = fake_orca.FakeModelObject([
+        fake_orca.FakeVolume(np.asarray(part.vertices), np.asarray(part.faces))
+    ])
+    monkeypatch.setattr(ORCA.host, "model", lambda: types.SimpleNamespace(objects=lambda: [obj]), raising=False)
+    monkeypatch.setattr(SF, "_engine_ctx", lambda: object())
+    res = SF.SupportFinsSetupCheck().execute()
+    assert res.status is fake_orca.PluginResult.Success, res
+    assert "1 object(s)" in res.message
+    assert "12 faces" in res.message
+    assert "ready" in res.message
 
 
 def test_mirrored_part_gets_the_same_fins_as_its_twin():
