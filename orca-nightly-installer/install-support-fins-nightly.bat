@@ -172,12 +172,38 @@ exit /b 0
 
 
 rem ---------------------------------------------------------------------------
-rem  download %1=url %2=dest   (PowerShell; no curl/git needed)
+rem  download %1=url %2=dest   (tries curl.exe, then PowerShell, then BITS)
 rem ---------------------------------------------------------------------------
 :download
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ErrorActionPreference='Stop'; try { [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri '%~1' -OutFile '%~2' } catch { Write-Host $_.Exception.Message; exit 1 }"
-exit /b %ERRORLEVEL%
+del "%~2" 2>nul
+
+rem 1) curl.exe ships with Windows 10 (1803+) and Windows 11 -- most reliable.
+where curl.exe >nul 2>nul
+if not errorlevel 1 (
+    echo   [curl] %~1
+    curl.exe -fLsS --retry 2 -o "%~2" "%~1"
+    if not errorlevel 1 if exist "%~2" goto :download_check
+)
+
+rem 2) PowerShell Invoke-WebRequest (single line -- no caret continuation).
+echo   [powershell] %~1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri '%~1' -OutFile '%~2' } catch { Write-Host ('  ' + $_.Exception.Message); exit 1 }"
+if not errorlevel 1 if exist "%~2" goto :download_check
+
+rem 3) BITS transfer (works when the others are blocked by policy/AV).
+echo   [bitsadmin] %~1
+bitsadmin /transfer OrcaPluginDL /priority foreground "%~1" "%~2" >nul 2>nul
+if exist "%~2" goto :download_check
+
+echo   All download methods failed.
+exit /b 1
+
+:download_check
+rem Reject empty / truncated files (e.g. an error page saved as the plugin).
+for %%A in ("%~2") do if %%~zA GTR 200 exit /b 0
+echo   Downloaded file looks empty or truncated.
+del "%~2" 2>nul
+exit /b 1
 
 
 rem ---------------------------------------------------------------------------
