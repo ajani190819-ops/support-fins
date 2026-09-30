@@ -21,6 +21,14 @@ support-fins/plugins/orca/build/
 support-fins/plugins/orca-wave/build/
 support-fins/plugins/orca-wave/**/wave_overhangs_log.jsonl
 
+# --- wave-overhangs/ ------------------------------------------------------
+# small stress models the pytest suite slices; committed copies of
+# support-fins/prototype/stress/models (see wave-overhangs/README.md)
+!wave-overhangs/tests/models/*.stl
+# demo SVG output and the plugin's per-object diagnostics log
+wave-overhangs/out/
+wave_overhangs_log.jsonl
+
 # example models: Thingi10K ones keep third-party licenses, so they're fetched
 # locally (fetch_thingi.py), never committed
 support-fins/prototype/examples/real/
