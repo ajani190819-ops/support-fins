@@ -25,13 +25,14 @@ WHY THIS ONE IS A POST-PROCESSOR
   `Step.psGCodePostProcess`, the supported seam for rewriting the exported
   file, where `ctx.gcode_path` points at the working G-code.
 
-SETUP
-  Process preset > Others > select "Unlayered Infill" in the plugin picker.
-  Which picker drives the export step depends on your OrcaSlicer build: some
-  show a single "Slicing Pipeline Plugin" field, some also show a separate
-  "Post-processing plugin" field. Select this capability in every plugin
-  picker you have; the plugin ignores every step except the export one, so
-  there is no harm in selecting it in all of them.
+SETUP -- ONE preset field
+  Process preset > Others > Slicing Pipeline Plugin > "Unlayered Infill".
+
+  That single field is all there is. Both Print.cpp (geometry steps) and
+  PostProcessor.cpp (the G-code export step this plugin uses) resolve the
+  same preset capability refs, so selecting the capability once wires up
+  every step. This plugin returns success() immediately for all the steps
+  it does not care about.
 
   Slice once, then run "Unlayered Infill - Check setup": it reports whether
   the export step actually ran, so you never have to guess.
@@ -255,15 +256,13 @@ class UnlayeredInfillCheck(orca.script.ScriptPluginCapabilityBase):
         if not st.get("seam_ever"):
             lines.append("The G-code step has NEVER RUN on this machine.")
             lines.append("")
-            lines.append("In your process preset under Others, select")
-            lines.append("'Unlayered Infill' in EVERY plugin picker you can")
-            lines.append("find -- 'Slicing Pipeline Plugin', and also")
-            lines.append("'Post-processing plugin' if your build has one.")
-            lines.append("Which one drives the export step depends on the")
-            lines.append("build; this plugin ignores all the other steps, so")
-            lines.append("selecting it in all of them is harmless.")
+            lines.append("Select it here:")
+            lines.append("  Process preset -> Others -> Slicing Pipeline Plugin")
+            lines.append("  -> Unlayered Infill")
             lines.append("")
-            lines.append("Then slice, export, and run this check again.")
+            lines.append("That one field drives every step, including the")
+            lines.append("G-code export step this plugin uses. Then slice,")
+            lines.append("export, and run this check again.")
         elif st.get("last_refused"):
             lines.append("The G-code step ran, but the plugin refused:")
             lines.append(f"  {st['last_refused']}")

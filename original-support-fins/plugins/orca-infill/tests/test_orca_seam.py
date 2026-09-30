@@ -195,7 +195,7 @@ def test_setup_check_reports_whether_the_seam_ever_ran(plugin, tmp_path):
     res = plugin.UnlayeredInfillCheck().execute()
     assert res.status is fake_orca.PluginResult.Success, res.message
     assert "NEVER RUN" in res.message
-    assert "EVERY plugin picker" in res.message
+    assert "Slicing Pipeline Plugin" in res.message
     assert "relative E distances" in res.message
 
     # after a real run it reports what happened

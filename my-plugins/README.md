@@ -85,3 +85,11 @@ What it changes:
 - also builds and tests the Wave Overhangs lane (14 tests), which was never wired up
 - adds an `installer` job running `tests/test_installer.py`, plus an advisory
   `refresh-builds.py --check` for stale shipped builds
+
+## `reference/`
+
+Background material, not shipped to users.
+
+- [`reference/orca-wiki/`](reference/orca-wiki/) — PDF snapshots of the
+  OrcaSlicer plugin wiki, and the note on why there is only **one** plugin
+  picker (`Others → Slicing Pipeline Plugin`) rather than two.

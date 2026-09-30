@@ -56,19 +56,17 @@ It handles this plugin and every other one, and re-running it updates them.
 
 1. Run **Wave Overhangs - Check setup** from the Plugins dialog. Expect
    `deps: numpy + shapely loaded at startup (audit-safe)`.
-2. Process preset (Advanced) → **Others** → select **Wave Overhangs** in the
-   plugin picker. **If your build shows more than one picker** (for example
-   both *Slicing Pipeline Plugin* and *Post-processing plugin*), select it in
-   **all** of them — the plugin ignores steps it doesn't care about, so there
-   is no downside.
+2. Process preset (Advanced) → **Others** → **Slicing Pipeline Plugin** →
+   **Wave Overhangs**. That one field is all you need — it drives both of the
+   plugin's steps.
 3. Slice a part with a steep overhang, then **run Check setup again**.
 
 ### Check setup tells you what actually happened
 
 The plugin has two seams: one during slicing that plans the waves, and one at
-export that writes them into the G-code. Which preset field drives the export
-seam differs between OrcaSlicer builds, so the plugin doesn't guess — it
-**records which steps really fired** and reports it:
+export that writes them into the G-code. Both are driven by that single preset
+field. Rather than assume they ran, the plugin **records which steps really
+fired** and reports it:
 
 ```
 --- what the last slice actually did ---

@@ -64,8 +64,8 @@ via **File > Plugins > Install local plugin**, then **fully restart Orca** (deps
 load on first startup — same audit-safe pattern as Support Fins). Run
 **Wave Overhangs - Check setup** first.
 
-Then select **Wave Overhangs** in your process preset under **Others**, in
-every plugin picker your build offers.
+Then select **Wave Overhangs** in your process preset under
+**Others → Slicing Pipeline Plugin**. That single field is the whole wiring.
 
 The plugin has two seams:
 
@@ -74,12 +74,15 @@ The plugin has two seams:
 | `Step.posSlice` | plans the waves, and (once safe) carves the overhang out of the slices |
 | `Step.psGCodePostProcess` | splices the wave moves into the exported G-code |
 
-Which preset field drives the export seam **varies between OrcaSlicer builds**
-— some expose a single *Slicing Pipeline Plugin* picker, some also expose a
-separate *Post-processing plugin* field. Rather than depend on a field name we
-cannot rely on, the plugin **measures which steps actually fire** and persists
-that in `wave_overhangs_state.json` next to itself. `Wave Overhangs - Check
-setup` reports it in plain language.
+Both seams come from that one selection: per the plugin-development wiki,
+`Print.cpp` *and* `PostProcessor.cpp` each "resolve the preset's capability
+refs" — the same refs — so one picker wires up every step. There is no second
+`post_process_plugin` field to set (the string does not appear anywhere in the
+official plugin documentation).
+
+Rather than assume the export seam ran, the plugin **measures which steps
+actually fire** and persists that in `wave_overhangs_state.json` next to
+itself. `Wave Overhangs - Check setup` reports it in plain language.
 
 Carving is gated on that measurement: until the splice has been observed
 running at least once, the overhang is left alone, so a configuration that
@@ -185,11 +188,12 @@ WAVE_PLUGIN_PATH=$PWD/../../../my-plugins/wave-overhangs/wave_overhangs_orca.py 
 
 ### Fixed in 0.0.3 — don't guess at preset fields
 
-0.0.2 decided whether it was safe to carve by reading the `post_process_plugin`
-setting. That was a bad assumption: **not every OrcaSlicer build exposes that
-field**, and a build that shows only a single *Slicing Pipeline Plugin* picker
-would have had carving permanently disabled with help text pointing at a
-setting the user cannot find.
+0.0.2 decided whether it was safe to carve by reading a `post_process_plugin`
+setting, on the assumption that a matching "Post-processing plugin" preset
+field existed. **It does not.** OrcaSlicer exposes a single *Slicing Pipeline
+Plugin* picker, and `post_process_plugin` appears nowhere in the official
+plugin documentation. 0.0.2 would therefore have disabled carving permanently
+and printed help text pointing at a setting the user cannot find.
 
 0.0.3 replaces the introspection with measurement. The plugin records which
 steps actually ran (`wave_overhangs_state.json`), carves only once the G-code

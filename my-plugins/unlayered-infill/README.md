@@ -47,10 +47,9 @@ immediately — no restart needed.
 1. Run **Unlayered Infill - Check setup** from the Plugins dialog.
 2. Printer Settings → Advanced → enable **Use relative E distances**.
    The plugin refuses to run on absolute-E G-code rather than corrupt it.
-3. Process preset (Advanced) → **Others** → select **Unlayered Infill** in the
-   plugin picker. **If your build shows more than one picker**, select it in
-   **all** of them: this plugin ignores every step except the G-code export
-   one, so there is no downside to selecting it everywhere.
+3. Process preset (Advanced) → **Others** → **Slicing Pipeline Plugin** →
+   **Unlayered Infill**. That one field drives every step, including the
+   G-code export step this plugin uses.
 4. Slice, then **run Check setup again** — it reports whether the export step
    actually ran:
 
