@@ -40,15 +40,18 @@
     {
       "id": "unlayered-infill",
       "name": "Unlayered Infill",
-      "version": null,
-      "status": "planned",
-      "stability": "not started",
-      "summary": "Not built yet. Placeholder so the folder, the installer and the docs are already wired up.",
-      "file": null,
-      "path": null,
+      "version": "0.1.0",
+      "status": "ready",
+      "stability": "experimental",
+      "summary": "Non-planar sparse infill: rides a sine wave in Z so layers interlock, tapering flat at the solid skin. No dependencies. Check Preview before printing.",
+      "file": "unlayered_infill_orca.py",
+      "path": "my-plugins/unlayered-infill/unlayered_infill_orca.py",
       "orca_dir": "UnlayeredInfill",
-      "capabilities": [],
-      "built_from": null
+      "capabilities": [
+        "Unlayered Infill",
+        "Unlayered Infill - Check setup"
+      ],
+      "built_from": "original-support-fins/plugins/orca-infill"
     }
   ]
 }

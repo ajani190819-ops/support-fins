@@ -19,6 +19,7 @@ original-support-fins/prototype/stress/models/*
 !original-support-fins/prototype/stress/models/*.stl
 original-support-fins/plugins/orca/build/
 original-support-fins/plugins/orca-wave/build/
+original-support-fins/plugins/orca-infill/build/
 original-support-fins/plugins/orca-wave/**/wave_overhangs_log.jsonl
 
 # example models: Thingi10K ones keep third-party licenses, so they're fetched

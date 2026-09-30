@@ -265,8 +265,10 @@ rem ===========================================================================
 :fallback_plan
 > "%PF_PLAN%" echo support-fins^|Support Fins^|0.1.0^|SupportFins^|support_fins_orca.py^|my-plugins/support-fins/support_fins_orca.py
 >>"%PF_PLAN%" echo wave-overhangs^|Wave Overhangs^|0.0.2^|WaveOverhangs^|wave_overhangs_orca.py^|my-plugins/wave-overhangs/wave_overhangs_orca.py
+>>"%PF_PLAN%" echo unlayered-infill^|Unlayered Infill^|0.1.0^|UnlayeredInfill^|unlayered_infill_orca.py^|my-plugins/unlayered-infill/unlayered_infill_orca.py
 call :write_state "%WORK%\support-fins.state.json"   "Support Fins"   "Support Fins"   "Support Fins - Check setup"   "0.1.0"
-call :write_state "%WORK%\wave-overhangs.state.json" "Wave Overhangs" "Wave Overhangs" "Wave Overhangs - Check setup" "0.0.1"
+call :write_state "%WORK%\wave-overhangs.state.json" "Wave Overhangs" "Wave Overhangs" "Wave Overhangs - Check setup" "0.0.2"
+call :write_state "%WORK%\unlayered-infill.state.json" "Unlayered Infill" "Unlayered Infill" "Unlayered Infill - Check setup" "0.1.0"
 exit /b 0
 
 

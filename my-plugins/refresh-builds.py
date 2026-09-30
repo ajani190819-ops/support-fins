@@ -36,6 +36,7 @@ MANIFEST = HERE / "plugins.json"
 BUILDS = {
     "support-fins": ("plugins/orca/build.py", "plugins/orca/build/support_fins_orca.py"),
     "wave-overhangs": ("plugins/orca-wave/build.py", "plugins/orca-wave/build/wave_overhangs_orca.py"),
+    "unlayered-infill": ("plugins/orca-infill/build.py", "plugins/orca-infill/build/unlayered_infill_orca.py"),
 }
 
 VERSION_RE = re.compile(r'^#\s*version\s*=\s*"([^"]+)"', re.MULTILINE)

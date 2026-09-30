@@ -1,94 +1,130 @@
-# Unlayered Infill — not built yet
+# Unlayered Infill — OrcaSlicer plugin
 
-Placeholder. Nothing to install.
+**v0.1.0 · EXPERIMENTAL · ready to install**
 
-This folder, its catalogue entry and its Orca folder name are already reserved,
-so when the plugin exists there is no plumbing to invent — and the installer
-already knows to skip it (`"status": "planned"` in
-[`../plugins.json`](../plugins.json)).
+> **Check the G-code Preview before printing, and start with a small test part.**
+> The engine is covered by 20 tests and the Orca seam by 12 more, but nothing
+> here has been validated on a real printer yet.
 
-## Starting point: TenTech's non-planar infill post-processor
+Non-planar sparse infill. Instead of every infill path sitting flat at one Z,
+infill moves ride a sine wave, `dz = amplitude × scale × sin(frequency × x)`,
+so each layer's infill keys into the one below instead of stacking as clean
+planes. `scale` tapers to zero where the infill approaches the solid skin above
+or below, so the skins stay flat and the part looks normal from outside.
 
-The intended basis is a GPL-3.0 derivative of `nonPlanarInfill.py` by Roman
-Tenger / TenTech ([TengerTechnologies/NonPlanarInfill](https://github.com/TengerTechnologies/NonPlanarInfill)).
+The motivation is strength: layer-aligned infill fails along the same planes the
+perimeters do, so a part is only as strong as its weakest layer boundary.
 
-> **The script itself is not in this repo yet** — it was pasted into a chat and
-> never written to disk, and that message is no longer retrievable. It needs to
-> be re-supplied before work can start. Drop it at
-> `reference/nonplanar_infill_tool.py` in this folder.
+| | |
+| --- | --- |
+| File | `unlayered_infill_orca.py` (~21 KB) |
+| Installs to | `%APPDATA%\OrcaSlicer\orca_plugins\UnlayeredInfill\` |
+| Capabilities | `Unlayered Infill`, `Unlayered Infill - Check setup` |
+| Needs | **Nothing.** Pure standard library — no numpy, no shapely, no first-run install, no restart |
+| Source | [`../../original-support-fins/plugins/orca-infill/`](../../original-support-fins/plugins/orca-infill/) |
+| Licence | GPL-3.0 (see [Credit](#credit)) |
 
-What it does, from notes taken at the time:
+## Install
 
-- Post-processes **already-sliced G-code**. Finds `;TYPE:` sections matching
-  `internal infill` / `sparse infill` (and reads `solid infill` to find the
-  top/bottom bounds of each infill column).
-- Splits infill moves into ~1.0 mm segments and displaces each one vertically
-  by `dz = amplitude * scale * sin(frequency * x)`, where `scale` tapers to
-  zero as the move approaches the nearest solid layer above or below — so the
-  wave dies out where it would collide with solid material.
-- Defaults `amplitude = -0.2` mm, `frequency = 1.5`. Amplitude accepts mm, `%`,
-  or `x` of the detected layer height (the most common `;HEIGHT:` value).
-- **Refuses to run on absolute-E G-code** (`M82`); relative E only.
-- Has a CLI, an `--inplace` mode for use as a slicer post-processing script,
-  and a tkinter GUI.
+Double-click **[`../../Install-Orca-Plugins.bat`](../../Install-Orca-Plugins.bat)**.
+It handles this plugin and every other one, and re-running it updates them.
 
-### Decision to make first: post-processor, or `posSlice`?
+<details>
+<summary>By hand instead</summary>
 
-These pull in opposite directions and the answer shapes everything else:
+1. **File > Plugins**.
+2. Arrow next to **Browse plugins** → **Install local plugin**.
+3. Pick `unlayered_infill_orca.py` from this folder.
+4. Enable it, with both capabilities on.
 
-| | G-code post-processor (the script's approach) | Slice-geometry plugin (`Step.posSlice`) |
+Unlike the other two plugins this one has no dependencies, so it works
+immediately — no restart needed.
+
+</details>
+
+## Use it
+
+> **One setting, and it is *not* the one the other plugins use.**
+
+1. Run **Unlayered Infill - Check setup** from the Plugins dialog.
+2. Printer Settings → Advanced → enable **Use relative E distances**.
+   The plugin refuses to run on absolute-E G-code rather than corrupt it.
+3. Process preset (Advanced) → **Others** → **Post-processing plugin** →
+   **Unlayered Infill**.
+4. Slice and **inspect the Preview**.
+
+**Do not put this one in the Slicing Pipeline Plugin field.** That field drives
+the geometry steps, which this plugin ignores — see below for why.
+
+### Why this plugin is a post-processor when the others aren't
+
+Support Fins and Wave Overhangs inject geometry at `Step.posSlice` and let Orca
+own flow, speed and cooling. That is the house rule, and
+[the Support Fins README](../../original-support-fins/plugins/orca/README.md)
+argues for it at length.
+
+Non-planar infill is the one case where the rule cannot apply: **a slice polygon
+is planar by construction**, so there is no way to express a wave in Z through
+the slicing seam. This plugin therefore runs at `Step.psGCodePostProcess`, the
+supported seam for rewriting the exported file.
+
+## Settings
+
+```json
+{
+  "enabled": true,
+  "amplitude": "-0.2",
+  "frequency": 1.5,
+  "segment_mm": 1.0,
+  "require_relative_e": true,
+  "log": true
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `amplitude` | Wave depth. Plain mm (`-0.2`), a percent of the layer height (`-150%`), or a multiple (`-1.5x`). **Negative dips the wave into the part**, which keeps the nozzle clear of what it already printed. |
+| `frequency` | Sine frequency along X. Higher = tighter ripples. |
+| `segment_mm` | How finely infill moves are chopped before displacing them. Smaller = smoother wave, bigger file. |
+| `require_relative_e` | Refuse to run on absolute-E (`M82`) G-code. Leave this on. |
+| `log` | Append a JSONL record of each run next to the plugin. |
+
+The wave reaches its full amplitude halfway between two solid skins and fades to
+nothing at each of them.
+
+## Credit
+
+The engine is adapted from **`nonPlanarInfill.py`**, Copyright © 2025
+**Roman Tenger (TenTech)**, GPL-3.0 —
+<https://github.com/TengerTechnologies/NonPlanarInfill>. This plugin is likewise
+GPL-3.0.
+
+The tool it came to us through is kept verbatim at
+[`reference/nonplanar_infill_tool.py`](reference/nonplanar_infill_tool.py) — it
+still works standalone (double-click it, or
+`python nonplanar_infill_tool.py yourfile.gcode`) and is useful for
+side-by-side comparison.
+
+### What changed on the way into the plugin
+
+Five defects were found by testing the reference against realistic OrcaSlicer
+output, and each is pinned by a test:
+
+| # | Defect | Effect on a ten-layer test cube |
 | --- | --- | --- |
-| Works today | yes — the script is proven | no — would be written from scratch |
-| Can move Z off the layer grid | **yes** — this is the whole point | **no**, slices are planar by definition |
-| Who decides flow/speed/cooling | the script, by rewriting E values | Orca |
-| Risk | must re-derive extrusion for every displaced segment | none, Orca owns it |
+| 1 | The `E` on a G-code line describes the move that *ends* there, but the engine used it for the move that *starts* there | long infill strokes under-extruded ~44%, short repositioning moves over-extruded |
+| 2 | Segment lists included both endpoints, so each stroke restated the previous one's last point *with extrusion* | 55 zero-length extruding moves — a blob at every junction |
+| 3 | Z was never restored when an infill section ended | 10 gap-fill extrusions ran at Z 0.82 instead of 0.80 |
+| 4 | Solid layers were matched on `"solid infill"` only, but Orca names its outer skins `Top surface` / `Bottom surface` | the bottom skin was never found, so the taper measured from the build plate and the wave was ~2.5× too aggressive next to it |
+| 5 | The "next solid above" kept a stale value above the topmost skin, making the taper go negative | the wave inverted near the top of the part |
 
-The repo's house style (argued in the Support Fins and Wave Overhangs READMEs)
-is to inject geometry at `posSlice` and let Orca own flow. **Non-planar infill
-is the case where that rule cannot apply**: a slice polygon is flat by
-construction, so there is no way to express a wave in Z through the slicing
-seam. This plugin has to be a post-processor.
+Plus: extrusion is now handed out so the printed digits sum to exactly the
+original value, rather than each segment rounding independently and drifting.
 
-That makes it architecturally the same shape as the Wave Overhangs G-code seam,
-which means it needs the same wiring:
+## Rebuilding this file
 
-- **Others → Post-processing plugin → Unlayered Infill** (`Step.psGCodePostProcess`)
-- and *not* the Slicing Pipeline Plugin field.
+It is generated — don't hand-edit it.
 
-`Step.psGCodePostProcess` receives `ctx.gcode_path` and is the supported place
-to rewrite the exported file; filesystem access to that file needs no audit
-prompt. See
-[`../../original-support-fins/plugins/orca-wave/tests/test_orca_seams.py`](../../original-support-fins/plugins/orca-wave/tests/test_orca_seams.py)
-for a working harness that drives exactly this seam offline — it can be reused
-as-is here.
-
-## The idea
-
-Infill that isn't tied to the print's layer grid: instead of every infill path
-sitting flat at one `z`, the infill follows its own continuous path through the
-part. The motivation is strength — layer-aligned infill fails along the same
-planes the perimeters do, so a part is only as strong as its weakest layer
-boundary.
-
-Related work already in this repo:
-
-- **Wave Overhangs** ([`../wave-overhangs/`](../wave-overhangs/)) is the same
-  family of problem — replacing a region's normal toolpaths with ones that
-  propagate rather than follow the layer grid — and it is the closest existing
-  reference for how to intercept Orca at the right seam.
-- The **Support Fins** Orca plugin README argues for the slicing-pipeline seam
-  (`orca.slicing.Step.posSlice`) over G-code post-processing:
-  [`../../original-support-fins/plugins/orca/README.md`](../../original-support-fins/plugins/orca/README.md).
-  That argument holds for everything except this plugin — see the table above
-  for why non-planar infill is the exception.
-
-## When it's ready
-
-1. Build the single-file plugin into this folder.
-2. In [`../plugins.json`](../plugins.json): set `status` to `ready`, fill in
-   `version`, `file`, `path`, `capabilities` and `built_from`.
-3. Add a build recipe to [`../refresh-builds.py`](../refresh-builds.py) and a
-   fallback line to `../../Install-Orca-Plugins.bat`.
-4. `python3 my-plugins/tests/test_installer.py` will confirm the wiring.
-
-Nobody has to re-download the installer — it reads the catalogue at run time.
+```bash
+python3 my-plugins/refresh-builds.py
+```

@@ -7,7 +7,7 @@ ready-to-install file** — no build folders, no nesting, no hunting.
 | --- | --- | --- | --- | --- |
 | Support Fins | **0.1.0** | Stable | `SupportFins` | [`support-fins/`](support-fins/) |
 | Wave Overhangs | **0.0.1** | Experimental | `WaveOverhangs` | [`wave-overhangs/`](wave-overhangs/) |
-| Unlayered Infill | — | Not started | `UnlayeredInfill` | [`unlayered-infill/`](unlayered-infill/) |
+| Unlayered Infill | 0.1.0 | Experimental | `UnlayeredInfill` | [`unlayered-infill/`](unlayered-infill/) |
 
 ## Installing
 

@@ -66,12 +66,25 @@ jobs:
         run: python plugins/orca-wave/build.py
       - name: Test Wave Overhangs
         run: python -m pytest -q plugins/orca-wave/tests/
+      - name: Test Wave Overhangs against the shipped build
+        run: |
+          WAVE_PLUGIN_PATH="$GITHUB_WORKSPACE/my-plugins/wave-overhangs/wave_overhangs_orca.py" \
+            python -m pytest -q plugins/orca-wave/tests/test_orca_seams.py
+      - name: Build Unlayered Infill
+        run: python plugins/orca-infill/build.py
+      - name: Test Unlayered Infill
+        run: python -m pytest -q plugins/orca-infill/tests/
+      - name: Test Unlayered Infill against the shipped build
+        run: |
+          INFILL_PLUGIN_PATH="$GITHUB_WORKSPACE/my-plugins/unlayered-infill/unlayered_infill_orca.py" \
+            python -m pytest -q plugins/orca-infill/tests/test_orca_seam.py
       - uses: actions/upload-artifact@v4
         with:
           name: orca
           path: |
             original-support-fins/plugins/orca/build/support_fins_orca.py
             original-support-fins/plugins/orca-wave/build/wave_overhangs_orca.py
+            original-support-fins/plugins/orca-infill/build/unlayered_infill_orca.py
           if-no-files-found: error
 
   installer:
