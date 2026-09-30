@@ -51,10 +51,56 @@ import time
 
 import orca
 
-try:  # numpy and mini-racer are installed by Orca from the PEP 723 header above
-    import numpy as np
-except ImportError:  # pragma: no cover - surfaced to the user in execute()
-    np = None
+# ---------------------------------------------------------------------------------
+# Dependencies (numpy, mini-racer)
+# ---------------------------------------------------------------------------------
+# Orca installs these from the PEP 723 header above on first load, then runs the
+# plugin. They MUST be imported here, at module-load time, and NEVER lazily from a
+# capability. Orca's plugin audit hook is OFF while the module loads but ON during
+# any capability (slice/script) call, and it refuses to open any file whose path
+# contains "conf", "cert" or "secret" (OrcaSlicer issue #15944). `import numpy`
+# eagerly reads numpy/__config__.py and numpy/_core/_ufunc_config.py -- both hold
+# "conf" -- so importing numpy from inside a capability is blocked with
+#   PermissionError: Plugin attempted an audited operation without permission
+# Importing everything now, during the audit-free load, sidesteps that entirely.
+#
+# _DEPS_ERROR is None when the dependencies are ready; otherwise it is a
+# user-facing message the capabilities surface instead of crashing the slice.
+np = None
+_DEPS_ERROR = None
+
+
+def _import_deps():
+    """Import numpy (and warm its 'conf'-named submodules) during module load."""
+    global np, _DEPS_ERROR
+    try:
+        import numpy
+        # Pull the files numpy opens into sys.modules NOW, while the audit hook is
+        # off, so none of them are opened again from inside a capability (Orca
+        # blocks any path containing "conf" -- see the note above).
+        import numpy.__config__            # noqa: F401  ("conf" in the path)
+        import numpy._core._ufunc_config   # noqa: F401  ("conf" in the path)
+        import numpy.linalg                # noqa: F401
+        np = numpy
+        _DEPS_ERROR = None
+    except ImportError:
+        # Deps not installed yet. Orca installs them from the PEP 723 header on
+        # first load; they only become importable after Orca is restarted.
+        _DEPS_ERROR = ("Support Fins is finishing its first-time dependency "
+                       "install (numpy, mini-racer). Fully quit and reopen "
+                       "OrcaSlicer, then try again.")
+    except PermissionError:
+        # Being opened under Orca's capability audit (blocks numpy's "conf" files,
+        # OrcaSlicer #15944). Shouldn't happen at load; a restart re-imports numpy
+        # during the audit-free startup window.
+        _DEPS_ERROR = ("OrcaSlicer's plugin sandbox blocked a Support Fins "
+                       "dependency (a known numpy audit limitation). Fully quit "
+                       "and reopen OrcaSlicer, then try again.")
+    except Exception as e:  # pragma: no cover - defensive
+        _DEPS_ERROR = f"Support Fins could not load numpy: {type(e).__name__}: {e}"
+
+
+_import_deps()
 
 ENGINE_JS = "__FINS_ENGINE_JS__"   # replaced by build.py with the esbuild bundle
 
@@ -508,8 +554,9 @@ class SupportFinsSlicing(orca.slicing.SlicingPipelineCapabilityBase):
         if not cfg["enabled"]:
             return orca.ExecutionResult.success("Support Fins: disabled in plugin config")
         if np is None:
-            return orca.ExecutionResult.failure(orca.PluginResult.RecoverableError,
-                                                "Support Fins needs numpy (install failed?)")
+            return orca.ExecutionResult.failure(
+                orca.PluginResult.RecoverableError,
+                _DEPS_ERROR or "Support Fins needs numpy (install failed?)")
         po = ctx.object
         if cfg["apply_to"] != "all" and _truthy(po.config_value("enable_support")):
             return orca.ExecutionResult.success("Support Fins: skipped (Orca supports are on for this part)")
@@ -568,8 +615,10 @@ class SupportFinsSetupCheck(orca.script.ScriptPluginCapabilityBase):
         if np is None:
             return orca.ExecutionResult.failure(
                 orca.PluginResult.RecoverableError,
+                _DEPS_ERROR or
                 "Support Fins needs numpy. Orca should install it from the plugin metadata; "
                 "try disabling/enabling the plugin or reinstalling it.")
+        lines.append("deps: numpy loaded at startup (audit-safe)")
         try:
             _engine_ctx()
             lines.append("engine: bundled printfins.com engine loaded")

@@ -56,6 +56,26 @@ Re-run it any time to update to the latest source and rebuild.
 4. In your process preset (Advanced), pick **Support Fins** under
    **Others > Slicing Pipeline Plugin**, then slice.
 
+## After installing: restart Orca (important)
+
+Orca installs the plugin's Python dependencies (numpy, mini-racer) **on first
+load**, and they only become usable after a full restart. So after running the
+installer, **fully quit and reopen OrcaSlicer** before slicing.
+
+If you slice too early you may see:
+
+```
+PermissionError: Plugin attempted an audited operation without permission
+```
+
+with a traceback ending in `numpy/__init__.py`. This is a known OrcaSlicer
+sandbox limitation ([#15944](https://github.com/OrcaSlicer/OrcaSlicer/issues/15944)):
+its audit refuses any file path containing `conf`/`cert`/`secret`, and numpy's
+`__config__.py` trips it when numpy is imported during slicing instead of at
+startup. Fully quitting and reopening Orca fixes it — numpy then loads during the
+audit-free startup window. Run **Support Fins - Check setup** afterwards; it
+should print `deps: numpy loaded at startup (audit-safe)`.
+
 ## Environment overrides
 
 | Variable | Effect |
