@@ -1,0 +1,114 @@
+Subject: [PATCH] orca: don't retry the engine load inside a capability
+
+The numpy import was moved to module load time because Orca's audit hook is
+off while a plugin loads but on during any capability call, and it blocks any
+path containing "conf" (OrcaSlicer #15944). The engine warm-up has the same
+shape of problem and is not covered by that fix.
+
+_engine_ctx() runs at load time, and on failure sets _engine = None and leaves
+the retry to the first slice. That retry happens inside a capability, with the
+audit hook on, where V8 reads its ICU data file as it starts. The user gets a
+bare PermissionError from inside mini-racer instead of the "quit and reopen
+OrcaSlicer" message the numpy path already gives them.
+
+This records why the load-time warm-up failed in _ENGINE_ERROR, mirroring the
+existing _DEPS_ERROR, and then:
+
+  - _engine_ctx() raises that reason instead of re-entering the loader
+  - the slicing capability returns it as a RecoverableError, right next to the
+    existing numpy guard
+
+Two tests cover it; both fail without the change.
+Verified: python3 plugins/orca/build.py && python3 -m pytest -q plugins/orca/tests
+-> 19 passed (17 existing + 2 new).
+
+Apply with:  git apply upstream-support-fins-engine-audit.patch
+
+--- a/support-fins/plugins/orca/src/support_fins_orca.py
++++ b/support-fins/plugins/orca/src/support_fins_orca.py
+@@ -130,6 +130,11 @@
+     """
+     global _engine
+     if _engine is None:
++        if _ENGINE_ERROR:
++            # Retrying here would run under Orca's capability audit, where V8's
++            # ICU data file read is blocked with a bare PermissionError. Report
++            # the load-time reason instead -- a restart is the actual fix.
++            raise RuntimeError(_ENGINE_ERROR)
+         import sys
+         from py_mini_racer import MiniRacer, init_mini_racer
+         if ENGINE_JS.startswith("__FINS_ENGINE"):
+@@ -147,11 +152,23 @@
+     return _engine
+ 
+ 
++# _ENGINE_ERROR mirrors _DEPS_ERROR: None once the engine is warm, otherwise a
++# user-facing message the capabilities surface instead of retrying the load.
++_ENGINE_ERROR = None
++
+ if not ENGINE_JS.startswith("__FINS_ENGINE"):
+     try:
+         _engine_ctx()
+-    except Exception:  # pragma: no cover - retried (and reported) on first slice
++    except PermissionError:  # pragma: no cover - needs Orca's audit hook
++        _engine = None
++        _ENGINE_ERROR = ("OrcaSlicer's plugin sandbox blocked the Support Fins "
++                         "engine while it was starting. Fully quit and reopen "
++                         "OrcaSlicer, then try again.")
++    except Exception as e:  # pragma: no cover - reported on first use
+         _engine = None
++        _ENGINE_ERROR = (f"Support Fins could not start its engine: "
++                         f"{type(e).__name__}: {e}. Fully quit and reopen "
++                         f"OrcaSlicer, then try again.")
+ 
+ 
+ def compute_fins(soup, layer_height, cfg):
+@@ -557,6 +574,9 @@
+             return orca.ExecutionResult.failure(
+                 orca.PluginResult.RecoverableError,
+                 _DEPS_ERROR or "Support Fins needs numpy (install failed?)")
++        if _ENGINE_ERROR:
++            return orca.ExecutionResult.failure(
++                orca.PluginResult.RecoverableError, _ENGINE_ERROR)
+         po = ctx.object
+         if cfg["apply_to"] != "all" and _truthy(po.config_value("enable_support")):
+             return orca.ExecutionResult.success("Support Fins: skipped (Orca supports are on for this part)")
+--- a/support-fins/plugins/orca/tests/test_plugin.py
++++ b/support-fins/plugins/orca/tests/test_plugin.py
+@@ -214,6 +214,36 @@
+     assert res.status is fake_orca.PluginResult.RecoverableError and "boom" in res.message
+ 
+ 
++def test_a_failed_engine_warmup_is_not_retried_under_the_audit_hook(monkeypatch):
++    """A failed load-time warm-up must not be retried from inside a capability.
++
++    Orca's audit hook is off while a plugin loads but on during any capability
++    call, and V8 reads its ICU data file when it starts. So retrying the engine
++    load during a slice turns a recoverable startup problem into a bare
++    PermissionError from deep inside mini-racer. Report the load-time reason
++    and let the user restart instead.
++    """
++    part = trimesh.load(MODELS / "cube.stl")
++    po = fake_orca.FakePrintObject(part, rot_x(45))
++    monkeypatch.setattr(SF, "_engine", None)
++    monkeypatch.setattr(SF, "_ENGINE_ERROR", "engine did not start; reopen OrcaSlicer")
++
++    def explode():
++        raise AssertionError("the engine loader ran inside a capability")
++    monkeypatch.setattr(SF, "init_mini_racer", explode, raising=False)
++
++    res = SF.SupportFinsSlicing().execute(fake_orca.Ctx(po))
++    assert res.status is fake_orca.PluginResult.RecoverableError
++    assert "reopen OrcaSlicer" in res.message
++
++
++def test_engine_ctx_reports_the_startup_reason_rather_than_reloading(monkeypatch):
++    monkeypatch.setattr(SF, "_engine", None)
++    monkeypatch.setattr(SF, "_ENGINE_ERROR", "sandbox blocked the engine")
++    with pytest.raises(RuntimeError, match="sandbox blocked the engine"):
++        SF._engine_ctx()
++
++
+ def test_plugin_registers_its_capabilities():
+     ORCA.registered.clear()
+     SF.SupportFinsPlugin().register_capabilities()

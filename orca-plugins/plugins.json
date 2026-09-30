@@ -1,0 +1,41 @@
+{
+  "//": "Catalogue of my OrcaSlicer plugins. Install-Orca-Plugins.bat downloads THIS file and nothing else it hasn't learned from here, so adding a new plugin = adding an entry below. A .bat already sitting on a laptop picks it up on its next run with no edit.",
+  "schema": 1,
+  "repo": "ajani190819-ops/orca-plugins",
+  "branch": "main",
+  "updated": "2026-09-30",
+  "plugins": [
+    {
+      "id": "wave-overhangs",
+      "name": "Wave Overhangs",
+      "version": "0.0.3",
+      "status": "ready",
+      "stability": "experimental",
+      "summary": "Prints steep overhangs support-free with wave-propagated toolpaths. Check Preview before printing.",
+      "file": "wave_overhangs_orca.py",
+      "path": "wave-overhangs/wave_overhangs_orca.py",
+      "orca_dir": "WaveOverhangs",
+      "capabilities": [
+        "Wave Overhangs",
+        "Wave Overhangs - Check setup"
+      ],
+      "built_from": "dev/wave-overhangs"
+    },
+    {
+      "id": "unlayered-infill",
+      "name": "Unlayered Infill",
+      "version": "0.2.0",
+      "status": "ready",
+      "stability": "experimental",
+      "summary": "Non-planar sparse infill: rides a sine wave in Z so layers interlock, tapering flat at the solid skin. No dependencies. Check Preview before printing.",
+      "file": "unlayered_infill_orca.py",
+      "path": "unlayered-infill/unlayered_infill_orca.py",
+      "orca_dir": "UnlayeredInfill",
+      "capabilities": [
+        "Unlayered Infill",
+        "Unlayered Infill - Check setup"
+      ],
+      "built_from": "dev/unlayered-infill"
+    }
+  ]
+}

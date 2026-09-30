@@ -1,0 +1,14 @@
+# built plugin artifacts: the ready-to-install copies at the repo root are the
+# committed ones (refresh-builds.py keeps them in sync with dev/)
+dev/*/build/
+
+# plugin runtime state, written next to a plugin when it runs in OrcaSlicer
+*_state.json
+# ...but .install_state.json is Orca's sidecar and must ship
+!.install_state.json
+*_log.jsonl
+
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/

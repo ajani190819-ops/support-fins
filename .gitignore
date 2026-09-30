@@ -37,3 +37,5 @@ my-plugins/**/*.log
 
 # plugin runtime state (records which steps actually fired)
 *_state.json
+# ...but .install_state.json is Orca's sidecar and must ship
+!.install_state.json
