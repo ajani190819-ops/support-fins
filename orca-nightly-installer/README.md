@@ -1,13 +1,12 @@
 # orca-nightly-installer
 
-One-step Windows bootstrapper that installs **and updates everything** needed to
-add [Support Fins](../support-fins/plugins/orca/) to a **nightly** build of
-OrcaSlicer.
+One `.bat` you keep anywhere (Downloads, a Tools folder, the Desktop) and
+double-click to **install or update** the OrcaSlicer plugins — **Support Fins**
+and/or **Wave Overhangs**.
 
-Unlike the root [`install-orca-support-fins.bat`](../install-orca-support-fins.bat)
-(which assumes you already have the repo, Python and Node), this script is a
-self-contained bootstrapper: run it on a fresh machine and it takes care of the
-prerequisites, the source, the build, and the install.
+**No Python, Node, Git or build tools required.** The installer downloads the
+ready-built plugins and copies them into your OrcaSlicer data folder. Run it again
+any time to update to the latest build.
 
 ## Use it
 
@@ -17,85 +16,60 @@ Double-click **`install-support-fins-nightly.bat`**, or run it from a terminal:
 install-support-fins-nightly.bat
 ```
 
-Optionally point it at a specific Orca data directory (for example a portable
-`data_dir` next to your nightly `OrcaSlicer.exe`, or a differently-named config
-folder):
+It will:
 
-```bat
-install-support-fins-nightly.bat "C:\Users\you\AppData\Roaming\OrcaSlicerNightly"
-```
+1. Ask which plugin(s) you want — Support Fins, Wave Overhangs, or both.
+2. Find your OrcaSlicer data folder under `%APPDATA%` (preferring a nightly
+   folder), or ask if there is more than one. You can also pass it explicitly:
+   ```bat
+   install-support-fins-nightly.bat "C:\Users\you\AppData\Roaming\OrcaSlicer"
+   ```
+3. Download the ready-built plugin(s) and install each into
+   `<data_dir>\orca_plugins\<Name>\`, with Orca's `.install_state.json` so they
+   show up enabled.
 
-Restart OrcaSlicer (or reopen **File > Plugins**) afterwards.
+Then, in OrcaSlicer:
 
-## What it does
+1. **Fully quit and reopen OrcaSlicer** (dependencies install on first load).
+2. **File > Plugins** — confirm the plugin(s) are enabled.
+3. Run the **"… - Check setup"** capability from the Plugins dialog.
+4. In your process preset (Advanced): **Others > Slicing Pipeline Plugin** —
+   choose **Support Fins** and/or **Wave Overhangs**.
 
-1. **Prerequisites** — checks for Git, Python 3 and Node.js and installs any that
-   are missing via `winget`. (esbuild is fetched on demand through `npx` during
-   the build; Orca installs `numpy` / `mini-racer` itself on first load.)
-2. **Source** — if you run it from inside a checkout it `git pull`s the repo it
-   lives in; otherwise it clones/updates a cached copy under
-   `%LOCALAPPDATA%\SupportFinsOrca\support-fins`.
-3. **Build** — runs `support-fins/plugins/orca/build.py` to produce the
-   single-file plugin `build/support_fins_orca.py`.
-4. **Nightly data dir** — scans `%APPDATA%\OrcaSlicer*` and prefers folders whose
-   name looks like a nightly/dev/alpha/beta build. It uses the single match
-   automatically, prompts when there are several, and lets you type a full path.
-5. **Install/update** — copies the plugin into
-   `<data_dir>\orca_plugins\SupportFins\` and writes Orca's `.install_state.json`
-   with both capabilities (**Support Fins** and **Support Fins - Check setup**)
-   enabled.
+## Updating
 
-Re-run it any time to update to the latest source and rebuild.
+Just double-click the same `.bat` again. Each run re-downloads the latest build
+and overwrites the installed copy. Keep the file in your Downloads/Tools folder
+and re-run it whenever you want updates or to add the other plugin.
 
-## In OrcaSlicer after installing
+## If a plugin doesn't appear after restart
 
-1. Restart Orca, or reopen **File > Plugins**.
-2. Confirm **Support Fins** is enabled.
-3. With a model on the plate, run **Support Fins - Check setup** from the Plugins
-   dialog to verify the engine and mesh access.
-4. In your process preset (Advanced), pick **Support Fins** under
-   **Others > Slicing Pipeline Plugin**, then slice.
-
-## After installing: restart Orca (important)
-
-Orca installs the plugin's Python dependencies (numpy, mini-racer) **on first
-load**, and they only become usable after a full restart. So after running the
-installer, **fully quit and reopen OrcaSlicer** before slicing.
-
-If you slice too early you may see:
+Some Orca builds only register plugins installed through the UI. The script leaves
+the plugin file in a known place, so you can finish via
+**File > Plugins > Install local plugin** and pick:
 
 ```
-PermissionError: Plugin attempted an audited operation without permission
+<data_dir>\orca_plugins\SupportFins\support_fins_orca.py
+<data_dir>\orca_plugins\WaveOverhangs\wave_overhangs_orca.py
 ```
-
-with a traceback ending in `numpy/__init__.py`. This is a known OrcaSlicer
-sandbox limitation ([#15944](https://github.com/OrcaSlicer/OrcaSlicer/issues/15944)):
-its audit refuses any file path containing `conf`/`cert`/`secret`, and numpy's
-`__config__.py` trips it when numpy is imported during slicing instead of at
-startup. Fully quitting and reopening Orca fixes it — numpy then loads during the
-audit-free startup window. Run **Support Fins - Check setup** afterwards; it
-should print `deps: numpy loaded at startup (audit-safe)`.
 
 ## Environment overrides
 
 | Variable | Effect |
 | --- | --- |
 | `ORCA_DATA_DIR` | Default Orca data directory (same as the first argument). |
-| `SUPPORT_FINS_REPO` | Git URL to clone when no local checkout is found. Default: `https://github.com/ajani190819-ops/support-fins.git` |
-| `SKIP_PREREQS=1` | Do not try to install Git/Python/Node via winget. |
-| `SKIP_UPDATE=1` | Do not git pull/clone; just build what is already on disk. |
+| `PLUGIN_BRANCH` | Git branch/ref to download the built plugins from. Default: `arena/01a0f0b3-support-fins`. Change to `main` once merged. |
+| `PLUGIN_PICK` | `1`=Support Fins, `2`=Wave Overhangs, `3`=Both — skips the menu. |
 
-## Requirements & notes
+## Notes
 
-- Windows with `winget` (App Installer) available for automatic prerequisite
-  installs. Without it, the script tells you which tools to install manually.
-- If a prerequisite is installed during the run, its `PATH` may not be visible in
-  the same window. The script adds common install locations for the current
-  session; if a step still can't find a freshly-installed tool, close the window
-  and run the installer again.
-- Requires a recent Orca **nightly/current** build with the Python plugin system
-  (**File > Plugins** and the **Slicing Pipeline Plugin** picker). Older builds
-  (2.4-style) are not supported by this lane.
-
-See the plugin's own docs for how it works and how to test it:
-[`../support-fins/plugins/orca/README.md`](../support-fins/plugins/orca/README.md).
+- Windows with PowerShell (built in) is used for the download — no extra tools.
+- **Support Fins** is stable and tested. **Wave Overhangs** is an experimental
+  spike (see its [README](../support-fins/plugins/orca-wave/README.md)) — check
+  the exported G-code before printing.
+- The `manual-install/` subfolder holds the same pre-built plugins if you prefer
+  to install them by hand; the `.bat` uses those automatically when run from
+  inside a repo checkout.
+- Prefer to build from source instead? Use the root
+  [`install-orca-support-fins.bat`](../install-orca-support-fins.bat), which
+  builds Support Fins locally (needs Python + Node).
