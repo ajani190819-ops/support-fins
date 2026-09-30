@@ -108,6 +108,34 @@ Use a recent Orca build that has **File > Plugins** / the Python plugin system.
 If your build has no Plugins window or no Slicing Pipeline Plugin picker, it is too old for
 this lane.  Use a current nightly/current release with the Python plugin system.
 
+## Troubleshooting
+
+### `PermissionError: Plugin attempted an audited operation without permission`
+
+Seen mid-slice with a traceback that ends in `numpy/__init__.py` →
+`<frozen importlib._bootstrap_external> get_data`.
+
+This is OrcaSlicer's plugin sandbox, not a bug in the fins. Orca's audit hook
+refuses to open **any file whose path contains `conf`, `cert` or `secret`**
+([OrcaSlicer #15944](https://github.com/OrcaSlicer/OrcaSlicer/issues/15944)), and
+`import numpy` reads `numpy/__config__.py` and `numpy/_core/_ufunc_config.py`
+(both contain `conf`). The audit is **off while a plugin loads** but **on during
+any capability call**, so numpy has to be imported at load time, never lazily
+from a slice/script.
+
+The plugin already imports numpy (and warms those `conf`-named submodules) at
+module load, so the usual cause is simply that **Orca installed the dependencies
+on first load and they only become importable after a restart**:
+
+1. **Fully quit and reopen OrcaSlicer** (not just File > Plugins — quit the app).
+2. Run **Support Fins - Check setup**. It should report
+   `deps: numpy loaded at startup (audit-safe)`.
+3. Slice.
+
+If it still fails after a restart, reinstall with the bundled installer
+(`install-orca-support-fins.bat`, or `orca-nightly-installer/` for nightlies) to
+refresh the plugin, then restart Orca again.
+
 ## Configuration
 
 The default capability config is:
