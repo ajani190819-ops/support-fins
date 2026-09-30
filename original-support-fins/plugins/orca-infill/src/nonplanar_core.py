@@ -44,6 +44,7 @@ Five behaviours differ from the reference, each pinned by a test in
 Section markers are matched on `;TYPE:` lines only, and case-insensitively:
 PrusaSlicer writes `;TYPE:Internal infill`, Orca `;TYPE:Sparse infill`.
 """
+import bisect
 import math
 import re
 
@@ -56,6 +57,16 @@ SOLID_MARKERS = ("solid infill", "top surface", "bottom surface")
 DEFAULT_AMPLITUDE = "-0.2"   # mm, or "%"/"x" of layer height; negative dips in
 DEFAULT_FREQUENCY = 1.5
 DEFAULT_SEGMENT_MM = 1.0
+DEFAULT_CELL_MM = 0.6        # XY resolution of the solid-column map
+DEFAULT_BLEND_MM = 2.0       # smooth the taper across this radius of columns
+
+# Stamped into the output so a second pass is a no-op. Orca can invoke
+# psGCodePostProcess more than once for one slice (file export and network
+# upload are separate calls), and waving an already-waved file would double
+# every displacement.
+MARKER_PREFIX = "; unlayered-infill"
+MARKER_VERSION = "0.2"
+MARKER = f"{MARKER_PREFIX} v{MARKER_VERSION} (non-planar sparse infill)\n"
 
 _WORD = re.compile(r"([A-Za-z])\s*([-+]?\d*\.?\d+)")
 _Z = re.compile(r"Z([-+]?\d*\.?\d+)")
@@ -159,43 +170,176 @@ def resolve_amplitude(spec, lines):
     return amp, f"{s} of layer height {lh:.3f} mm = {amp:.3f} mm"
 
 
-def find_solid_layers(lines):
-    """Z heights that carry a solid skin — the anchors the wave tapers into."""
-    heights = set()
-    z = 0.0
-    for line in lines:
-        words = parse_words(line)
-        if words and words.get("G") in (0.0, 1.0) and "Z" in words:
-            z = words["Z"]
-        name = section_name(line)
-        if name and is_solid_section(name):
-            heights.add(round(z, 4))
-    return sorted(heights)
+def already_processed(lines):
+    """Has this file already been waved? Then leave it completely alone."""
+    return any(line.startswith(MARKER_PREFIX) for line in lines)
 
 
-def taper_scale(z, solids):
-    """0 at a solid skin, rising to 0.5 midway between the skins around it.
+class SolidGrid:
+    """Where the part has solid skin, mapped as a grid of XY columns.
 
-    Infill with no solid both above *and* below is not bracketed, so it gets no
-    wave at all — that is the case the reference turned into a sign flip.
+    A single global list of solid Z heights is only correct for a part whose
+    skins are flat planes spanning the whole footprint. Give it a ledge, a
+    bridge, a chamfered top, or two towers of different heights and it fails
+    in a way that matters: every column is told its roof is the *highest*
+    skin anywhere in the print, so infill directly under a low ledge thinks
+    it has metres of headroom and waves at full amplitude straight into it.
+
+    Recording solid heights per XY column instead gives every infill move a
+    floor and roof measured in its own column — the wave fades against the
+    skin it is actually about to hit.
     """
-    below = above = None
-    for s in solids:
-        if s < z - 1e-9:
-            below = s if below is None else max(below, s)
-        elif s > z + 1e-9:
-            above = s if above is None else min(above, s)
-    if below is None or above is None:
-        return 0.0
-    span = above - below
-    if span <= 0:
-        return 0.0
-    return min(above - z, z - below) / span
+
+    __slots__ = ("cell", "columns", "_raw_cache", "_disc")
+
+    def __init__(self, cell_mm=DEFAULT_CELL_MM):
+        self.cell = max(0.05, float(cell_mm))
+        self.columns = {}
+        self._raw_cache = {}
+        self._disc = None
+
+    def key(self, x, y):
+        c = self.cell
+        return (int(math.floor(x / c)), int(math.floor(y / c)))
+
+    def add_move(self, x0, y0, x1, y1, z):
+        """Mark every column the solid extrusion (x0,y0)->(x1,y1) crosses."""
+        zr = round(z, 4)
+        step = self.cell * 0.5
+        n = max(1, int(math.hypot(x1 - x0, y1 - y0) / step) + 1)
+        cols = self.columns
+        for i in range(n + 1):
+            t = i / n
+            cols.setdefault(self.key(x0 + t * (x1 - x0),
+                                     y0 + t * (y1 - y0)), set()).add(zr)
+
+    def finalize(self):
+        self.columns = {k: sorted(v) for k, v in self.columns.items()}
+        return self
+
+    def _raw(self, key, z, full_strength):
+        """Taper for one column: 0 at its own skins, peak mid-span.
+
+        Returns None when the column has no solid at all (nothing to measure
+        against), which the blend treats as "no opinion" rather than zero.
+        """
+        ck = (key, z)
+        hit = self._raw_cache.get(ck)
+        if hit is not None:
+            return hit[0]
+        zs = self.columns.get(key)
+        if not zs:
+            self._raw_cache[ck] = (None,)
+            return None
+        i = bisect.bisect_left(zs, z - 1e-9)
+        if i < len(zs) and abs(zs[i] - z) <= 1e-6:
+            val = 0.0                      # this column is solid right here
+        else:
+            below = zs[i - 1] if i > 0 else None
+            j = bisect.bisect_right(zs, z + 1e-9)
+            above = zs[j] if j < len(zs) else None
+            if below is None or above is None or above - below <= 0:
+                val = 0.0                  # unbracketed: no wave, no sign flip
+            else:
+                val = min(above - z, z - below) / (above - below)
+                if full_strength:
+                    val = min(1.0, val * 2.0)
+        self._raw_cache[ck] = (val,)
+        return val
+
+    def _offsets(self, blend_mm):
+        """Cell offsets within the blend radius, computed once."""
+        if self._disc is None:
+            r = min(8, int(math.ceil(blend_mm / self.cell)))
+            self._disc = [(dx, dy)
+                          for dx in range(-r, r + 1)
+                          for dy in range(-r, r + 1)
+                          if math.hypot(dx, dy) * self.cell <= blend_mm + 1e-9]
+        return self._disc
+
+    def scale(self, x, y, z, full_strength=False, blend_mm=DEFAULT_BLEND_MM):
+        """Blended taper at a point.
+
+        Neighbouring columns can have very different floors and roofs — at the
+        edge of a ledge, one column's roof is 2 mm up and the next one's is
+        20 mm up. Taking each column's answer literally puts a step in the
+        wave exactly there. Averaging over a small disc turns that step into a
+        ramp, which is what `blend_mm` buys.
+
+        Columns with no solid recorded are skipped rather than counted as
+        zero: they are usually just gaps between solid extrusion lines, and
+        counting them would damp the wave everywhere.
+        """
+        z = round(z, 4)
+        if blend_mm <= 0:
+            return self._raw(self.key(x, y), z, full_strength) or 0.0
+        ix, iy = self.key(x, y)
+        c = self.cell
+        total = weight = 0.0
+        for dx, dy in self._offsets(blend_mm):
+            val = self._raw((ix + dx, iy + dy), z, full_strength)
+            if val is None:
+                continue
+            # distance from the sample point to that column's centre
+            cx = (ix + dx + 0.5) * c
+            cy = (iy + dy + 0.5) * c
+            d = math.hypot(cx - x, cy - y)
+            w = 1.0 - d / blend_mm
+            if w <= 0.0:
+                continue
+            total += w * val
+            weight += w
+        return total / weight if weight > 0.0 else 0.0
+
+
+def build_solid_grid(lines, cell_mm=DEFAULT_CELL_MM):
+    """Rasterise every solid-skin extrusion into an XY column map."""
+    grid = SolidGrid(cell_mm)
+    x = y = None
+    z = 0.0
+    solid = False
+    solid_heights = set()
+    for line in lines:
+        name = section_name(line)
+        if name is not None:
+            solid = is_solid_section(name)
+            continue
+        words = parse_words(line)
+        if not words or words.get("G") not in (0.0, 1.0):
+            continue
+        nx = words.get("X", x)
+        ny = words.get("Y", y)
+        if "Z" in words:
+            z = words["Z"]
+        e = words.get("E")
+        if solid and e is not None and e > 0 and None not in (x, y, nx, ny):
+            grid.add_move(x, y, nx, ny, z)
+            solid_heights.add(round(z, 4))
+        x, y = nx, ny
+    grid.finalize()
+    return grid, sorted(solid_heights)
+
+
+def _empty_stats(**over):
+    base = {"amplitude_mm": 0.0, "amplitude_desc": "", "extrusion_mode": "",
+            "solid_layers": 0, "solid_columns": 0, "sections": 0, "moves": 0,
+            "segments": 0, "max_wiggle": 0.0, "skipped_unbracketed": 0,
+            "already_processed": False, "cell_mm": 0.0, "blend_mm": 0.0,
+            "full_strength": False}
+    base.update(over)
+    return base
 
 
 def process(lines, amplitude_spec=DEFAULT_AMPLITUDE, frequency=DEFAULT_FREQUENCY,
-            segment_mm=DEFAULT_SEGMENT_MM, require_relative_e=True):
+            segment_mm=DEFAULT_SEGMENT_MM, require_relative_e=True,
+            cell_mm=DEFAULT_CELL_MM, blend_mm=DEFAULT_BLEND_MM,
+            full_strength=False):
     """Rewrite sparse-infill moves as wavy ones. Returns (out_lines, stats)."""
+    # Orca may run the export step twice for one slice (file + upload). Waving
+    # an already-waved file would double every displacement, so bail out.
+    if already_processed(lines):
+        return list(lines), _empty_stats(already_processed=True)
+
     amplitude, amp_desc = resolve_amplitude(amplitude_spec, lines)
 
     mode = detect_extrusion_mode(lines)
@@ -205,9 +349,11 @@ def process(lines, amplitude_spec=DEFAULT_AMPLITUDE, frequency=DEFAULT_FREQUENCY
             "corrupt it.\n\nFix: OrcaSlicer > Printer Settings > Advanced > "
             "'Use relative E distances', then slice again.")
 
-    solids = find_solid_layers(lines)
+    grid, solids = build_solid_grid(lines, cell_mm)
     frequency = float(frequency)
     segment_mm = max(0.05, float(segment_mm))
+    blend_mm = max(0.0, float(blend_mm))
+    full_strength = bool(full_strength)
 
     out = []
     x = y = z = None
@@ -252,7 +398,9 @@ def process(lines, amplitude_spec=DEFAULT_AMPLITUDE, frequency=DEFAULT_FREQUENCY
         movable = (in_infill and e is not None and e > 0 and "Z" not in words
                    and None not in (x, y, z) and (nx != x or ny != y))
         if movable:
-            scale = taper_scale(z, solids)
+            # sample the taper at the midpoint of the stroke
+            scale = grid.scale((x + nx) * 0.5, (y + ny) * 0.5, z,
+                               full_strength, blend_mm)
             if scale > 0.0:
                 length = math.hypot(nx - x, ny - y)
                 n = max(1, int(length // segment_mm))
@@ -286,14 +434,22 @@ def process(lines, amplitude_spec=DEFAULT_AMPLITUDE, frequency=DEFAULT_FREQUENCY
 
     restore_z()
 
+    if moves:
+        out.insert(0, MARKER)
+
     return out, {
         "amplitude_mm": amplitude,
         "amplitude_desc": amp_desc,
         "extrusion_mode": mode,
         "solid_layers": len(solids),
+        "solid_columns": len(grid.columns),
         "sections": sections,
         "moves": moves,
         "segments": segments,
         "max_wiggle": max_wiggle,
         "skipped_unbracketed": skipped_unbracketed,
+        "already_processed": False,
+        "cell_mm": grid.cell,
+        "blend_mm": blend_mm,
+        "full_strength": full_strength,
     }

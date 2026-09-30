@@ -143,3 +143,57 @@ to the original value instead of each segment rounding independently.
 - [ ] Wave along Y as well as X (currently `sin(f·x)` only, so the wave is
       invariant along Y)
 - [ ] Respect per-object settings rather than one global config
+
+## 0.2.0 — per-column skins, blending, full strength, idempotency
+
+0.1.0 reproduced the reference's *global* model of where solid material is: a
+single sorted list of Z heights carrying a skin anywhere in the print. Four
+changes, each pinned by tests in `tests/test_nonplanar_core.py`:
+
+### Solid material is mapped per XY column
+
+`build_solid_grid()` rasterises every solid extrusion into a grid of columns
+`cell_mm` (0.6 mm) across, recording the Z heights that are solid *in that
+column*. `SolidGrid.scale()` brackets an infill move between its own column's
+nearest skin below and above.
+
+The global list is wrong on any part whose skins are not one flat plane. Two
+towers of different heights share a build plate: the short one's top skin at
+z=1.0 enters the global list, so the tall tower is pinched to zero taper at
+z=1.0 as well — planting a flat, unwoven plane straight through it. That is
+the exact layer-boundary weakness the tool exists to remove, manufactured by
+the tool itself. `test_a_tall_tower_ignores_a_short_neighbours_roof` measures
+it.
+
+### `blend_mm` smooths column seams
+
+Adjacent columns at the edge of a ledge can have roofs millimetres apart, so
+taking each column's answer literally puts a step in the wave right there.
+`scale()` averages over a disc of radius `blend_mm` (2.0 mm), distance
+weighted. Columns with no solid recorded are *skipped* rather than counted as
+zero — they are usually just the gaps between solid extrusion lines, and
+counting them would damp the wave everywhere.
+
+Raw per-column tapers are memoised on `(column, z)`, so the blend costs about
+23% on a 100k-segment file rather than multiplying the work by the disc size.
+
+### `full_strength`
+
+The classic taper is `min(d_top, d_bot) / span`, which peaks at **0.5**
+mid-span — the wave never exceeds half the requested amplitude. With
+`full_strength` it is doubled and clamped to 1.0, reaching the full amplitude
+mid-span while still fading to zero at the skins. Off by default: at 1.0 the
+displacement can equal the whole gap to the nearest skin in a thin part.
+
+### A marker makes a second pass a no-op
+
+Output carries `; unlayered-infill v0.2` and `already_processed()` makes
+`process()` return the input untouched. OrcaSlicer can invoke
+`psGCodePostProcess` **twice for one slice** — once for the file, once for a
+network upload — and the wiki is explicit that these are separate calls.
+Without the marker the second call waves the waved file: every displacement
+doubles and every segment is split again.
+
+The marker is only written when moves were actually modulated, so a file the
+plugin declined to touch is not stamped in a way that would make a later real
+run skip it.

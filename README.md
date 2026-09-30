@@ -72,7 +72,7 @@ Install-Orca-Plugins.bat --help
 | --- | --- | --- | --- |
 | **Support Fins** | 0.1.0 | Stable | [`my-plugins/support-fins/`](my-plugins/support-fins/) |
 | **Wave Overhangs** | 0.0.3 | Experimental — check Preview before printing | [`my-plugins/wave-overhangs/`](my-plugins/wave-overhangs/) |
-| **Unlayered Infill** | 0.1.0 | Experimental — check Preview before printing | [`my-plugins/unlayered-infill/`](my-plugins/unlayered-infill/) |
+| **Unlayered Infill** | 0.2.0 | Experimental — check Preview before printing | [`my-plugins/unlayered-infill/`](my-plugins/unlayered-infill/) |
 
 Each folder holds the built plugin plus Orca's `.install_state.json` sidecar —
 the exact files the installer hands out, so you can also grab one by hand.

@@ -40,7 +40,7 @@
     {
       "id": "unlayered-infill",
       "name": "Unlayered Infill",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "status": "ready",
       "stability": "experimental",
       "summary": "Non-planar sparse infill: rides a sine wave in Z so layers interlock, tapering flat at the solid skin. No dependencies. Check Preview before printing.",

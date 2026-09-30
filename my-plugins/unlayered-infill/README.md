@@ -1,6 +1,6 @@
 # Unlayered Infill — OrcaSlicer plugin
 
-**v0.1.0 · EXPERIMENTAL · ready to install**
+**v0.2.0 · EXPERIMENTAL · ready to install**
 
 > **Check the G-code Preview before printing, and start with a small test part.**
 > The engine is covered by 20 tests and the Orca seam by 12 more, but nothing
@@ -61,6 +61,54 @@ immediately — no restart needed.
    If it says `NEVER RUN`, the export step isn't being reached and nothing in
    your G-code changed.
 5. **Inspect the Preview** before printing.
+
+## Settings
+
+Plugins dialog → **Unlayered Infill** → *Config*.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `amplitude` | `-0.2` | Ripple depth. Plain mm, or a share of the layer height (`-150%`, `-1.5x`) so one setting means the same thing across profiles. **Negative dips into the part**, which keeps the nozzle clear. |
+| `frequency` | `1.5` | Ripples per mm along X. |
+| `segment_mm` | `1.0` | Each infill move is chopped into pieces this long before being displaced. |
+| `cell_mm` | `0.6` | XY resolution of the solid-skin map (see below). Analysis only — never appears in your G-code. |
+| `blend_mm` | `2.0` | Smooths the taper across neighbouring columns so a ledge doesn't put a kink in the wave. |
+| `full_strength` | `false` | The classic taper peaks at **half** the amplitude even mid-span. Turn this on to reach the full amplitude in the middle, still fading to nothing at the skins. |
+| `require_relative_e` | `true` | Refuse to run on absolute-E G-code rather than corrupt it. |
+| `log` | `true` | Write a JSONL record of each run next to the plugin. |
+
+### The wave fades against *your part's own* skins
+
+The naive way to taper is one global list of "heights that have a solid
+layer". That is only right for a part whose skins are flat planes across the
+whole footprint. Give it a ledge, a bridge, a chamfer, or two towers of
+different heights and it goes wrong in a way that matters.
+
+This version maps solid material into **XY columns** `cell_mm` across. Each
+column gets its own floor and roof, so every infill move fades against the
+skin it is actually about to hit:
+
+```
+        tall tower                     A global solid list contains 1.0,
+   ┌───┐   │                           because the short tower put it there.
+   │███│ ← skin at 3.0                 So the tall tower would be forced flat
+   │   │   │                           at z=1.0 too — planting exactly the
+   ├───┤   │   short tower             unwoven layer boundary we came to
+   │   │   ├───┐                       remove.
+   │   │   │███│ ← skin at 1.0
+   └───┴───┴───┘
+```
+
+`blend_mm` then smooths the seam where two columns disagree, so the step at
+the edge of a ledge becomes a ramp.
+
+### Running twice is safe
+
+The output carries a `; unlayered-infill v0.2` marker, and a file that already
+has one is left completely alone. This matters because OrcaSlicer can invoke
+the export step **twice for one slice** — once writing the file and once for a
+network upload — and waving an already-waved file would double every
+displacement.
 
 ### Why this plugin is a post-processor when the others aren't
 

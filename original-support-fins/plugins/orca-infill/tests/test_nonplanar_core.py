@@ -162,13 +162,25 @@ def test_the_wipe_after_infill_runs_on_the_layer_plane():
     assert checked >= 5, "no wipe moves were checked"
 
 
+def solid_heights(src):
+    """The Z heights carrying a skin, anywhere in the part."""
+    return core.build_solid_grid(src)[1]
+
+
+def scale_at(src, z, x=5.0, y=5.0, **kw):
+    """Taper at a point, through the column grid."""
+    return core.build_solid_grid(src, kw.pop("cell_mm", core.DEFAULT_CELL_MM))[0] \
+               .scale(x, y, z, kw.pop("full_strength", False),
+                      kw.pop("blend_mm", core.DEFAULT_BLEND_MM))
+
+
 # ---------------------------------------------------------------------------
 # 4. Orca's top/bottom skins count as solid
 # ---------------------------------------------------------------------------
 
 def test_orca_top_and_bottom_surfaces_are_found():
     src = cube_gcode(layers=10, bottom=3, top=2)
-    solids = core.find_solid_layers(src)
+    solids = solid_heights(src)
     assert 0.2 in solids and 0.6 in solids, \
         f"'Bottom surface' layers missing from {solids}"
     assert 2.0 in solids, f"'Top surface' layer missing from {solids}"
@@ -176,9 +188,8 @@ def test_orca_top_and_bottom_surfaces_are_found():
 
 def test_taper_measures_from_the_skin_not_the_build_plate():
     src = cube_gcode(layers=10, bottom=3, top=2)
-    solids = core.find_solid_layers(src)
     # first sparse layer sits at 0.8, right above the 0.6 bottom skin
-    s = core.taper_scale(0.8, solids)
+    s = scale_at(src, 0.8)
     # bracketed by the 0.6 bottom skin and the 1.8 solid above:
     #   min(1.8 - 0.8, 0.8 - 0.6) / (1.8 - 0.6) = 0.2 / 1.2
     assert s == pytest.approx(0.2 / 1.2), (
@@ -201,18 +212,18 @@ def test_prusa_naming_also_works():
 # ---------------------------------------------------------------------------
 
 def test_infill_above_the_last_solid_layer_gets_no_wave():
-    solids = [0.6, 1.6]
-    assert core.taper_scale(2.4, solids) == 0.0     # nothing above
-    assert core.taper_scale(0.2, solids) == 0.0     # nothing below
-    assert core.taper_scale(1.0, solids) > 0.0      # bracketed
+    src = cube_gcode(layers=10, bottom=3, top=2)   # skins at 0.2-0.6 and 1.8-2.0
+    assert scale_at(src, 3.0) == 0.0     # nothing above
+    assert scale_at(src, 0.1) == 0.0     # nothing below
+    assert scale_at(src, 1.2) > 0.0      # bracketed
 
 
 def test_scale_is_never_negative_anywhere_in_a_real_file():
     src = cube_gcode()
-    solids = core.find_solid_layers(src)
+    grid, _ = core.build_solid_grid(src)
     for i in range(1, 400):
         z = i * 0.05
-        assert core.taper_scale(z, solids) >= 0.0
+        assert grid.scale(5.0, 5.0, z) >= 0.0
 
 
 def test_wave_stays_within_the_requested_amplitude():
@@ -303,3 +314,206 @@ def test_segment_length_controls_resolution():
     _, fine = core.process(src, amplitude_spec="-0.2", segment_mm=0.5)
     assert fine["segments"] > coarse["segments"]
     assert fine["moves"] == coarse["moves"]
+
+
+# ---------------------------------------------------------------------------
+# 6. Solid skins are mapped per XY column, not globally
+# ---------------------------------------------------------------------------
+
+def two_tower_gcode():
+    """Two towers of different heights sharing a build plate.
+
+    Tower A (x 0-8) is capped at z=1.0. Tower B (x 12-20) runs on to z=3.0.
+    Nothing in tower B has a skin at z=1.0 — but a global list of solid
+    heights contains 1.0, because tower A put it there.
+    """
+    out = ["M83 ; relative extrusion\n"]
+    z = 0.2
+    while z < 3.0001:
+        out.append(f";LAYER_CHANGE\n;Z:{z:.1f}\n;HEIGHT:0.2\n")
+        out.append(f"G1 Z{z:.1f} F600\n")
+        for name, x0, x1, top in (("A", 1.0, 8.0, 1.0), ("B", 12.0, 19.0, 3.0)):
+            if z > top + 1e-9:
+                continue
+            if abs(z - 0.2) < 1e-9:
+                kind = "Bottom surface"
+            elif abs(z - top) < 1e-9:
+                kind = "Top surface"
+            else:
+                kind = "Sparse infill"
+            out.append(f";TYPE:{kind}\n")
+            for i in range(6):          # a few passes so columns get covered
+                y = 1.0 + i * 1.5
+                out.append(f"G1 X{x0:.3f} Y{y:.3f} F9000\n")
+                out.append(f"G1 X{x1:.3f} Y{y:.3f} E0.90000 F1800\n")
+        z = round(z + 0.2, 4)
+    return out
+
+
+def test_a_tall_tower_ignores_a_short_neighbours_roof():
+    """The bug a global solid list causes, measured.
+
+    Tower A's top skin at z=1.0 is in the global list, so global bracketing
+    pinches the taper to zero at z=1.0 *everywhere* — including inside tower
+    B, which has no skin there. That plants a flat, unwoven plane right
+    through the tall tower: exactly the layer-boundary weakness the whole
+    tool exists to remove.
+    """
+    src = two_tower_gcode()
+    grid, solids = core.build_solid_grid(src)
+    assert 1.0 in solids and 3.0 in solids, solids
+
+    in_b = grid.scale(15.0, 4.0, 1.0)      # inside tower B, at A's roof height
+    assert in_b > 0.1, (
+        f"tower B pinches to {in_b:.4f} at z=1.0 — it is still being bracketed "
+        "against tower A's roof")
+
+    in_a_roof = grid.scale(4.0, 4.0, 1.0)  # inside tower A, at its own roof
+    assert in_a_roof == pytest.approx(0.0, abs=1e-6), (
+        f"tower A must stay flat at its own skin, got {in_a_roof:.4f}")
+
+
+def test_each_column_tapers_against_its_own_roof():
+    """At the same Z, the two towers must get different answers.
+
+    The taper is a fraction of the column's own floor-to-roof span, so at
+    z=0.8 tower A (skins 0.2 and 1.0) sits at 0.2/0.8 = 0.25 of its span,
+    while tower B (skins 0.2 and 3.0) sits at 0.6/2.8 = 0.214 of its much
+    taller one. A global solid list would hand both columns tower A's answer,
+    because 1.0 would be the nearest solid above in both.
+    """
+    src = two_tower_gcode()
+    grid, _ = core.build_solid_grid(src)
+    a = grid.scale(4.0, 4.0, 0.8)
+    b = grid.scale(15.0, 4.0, 0.8)
+
+    assert a == pytest.approx(0.2 / 0.8, abs=0.01), a
+    assert b == pytest.approx(0.6 / 2.8, abs=0.01), (
+        f"tower B got {b:.4f}; bracketed against tower A's roof it would be "
+        f"{0.2 / 0.8:.4f}")
+    assert a != pytest.approx(b, abs=0.01), (
+        "both towers got the same taper, so columns are not independent")
+
+
+def test_the_wave_never_reaches_a_skin_in_its_own_column():
+    """Amplitude x taper must stay inside the gap to the nearest local skin."""
+    src = two_tower_gcode()
+    grid, _ = core.build_solid_grid(src)
+    amp = 0.2
+    for x in (4.0, 15.0):
+        for i in range(2, 15):
+            z = round(i * 0.2, 4)
+            zs = grid.columns.get(grid.key(x, 4.0))
+            if not zs:
+                continue
+            gap = min((abs(s - z) for s in zs), default=None)
+            if gap is None or gap < 1e-9:
+                continue
+            dz = amp * grid.scale(x, 4.0, z)
+            assert dz <= gap + 1e-9, (
+                f"at x={x} z={z} the wave moves {dz:.4f} mm but the nearest "
+                f"skin in that column is only {gap:.4f} mm away")
+
+
+# ---------------------------------------------------------------------------
+# 7. Blending across column seams
+# ---------------------------------------------------------------------------
+
+def ledge_grid(cell=0.6):
+    """Columns left of x=10 are capped at z=1.0, right of it at z=3.0."""
+    g = core.SolidGrid(cell)
+    for x in range(0, 100):
+        xx = x * 0.2
+        g.add_move(xx, 0.0, xx, 8.0, 0.2)
+        g.add_move(xx, 0.0, xx, 8.0, 1.0 if xx < 10.0 else 3.0)
+    return g.finalize()
+
+
+def biggest_step(grid, blend):
+    vals = [grid.scale(8.0 + i * 0.1, 4.0, 0.8, False, blend) for i in range(41)]
+    return max(abs(b - a) for a, b in zip(vals, vals[1:]))
+
+
+def test_blending_smooths_the_step_at_a_ledge():
+    """Without blending the taper jumps at the column seam; with it, it ramps."""
+    hard = biggest_step(ledge_grid(), blend=0.0)
+    soft = biggest_step(ledge_grid(), blend=core.DEFAULT_BLEND_MM)
+    assert soft < hard / 2.0, (
+        f"blending barely helped: worst step {soft:.5f} vs {hard:.5f} unblended")
+
+
+def test_blending_does_not_move_the_taper_far_from_the_local_answer():
+    grid = ledge_grid()
+    for x in (2.0, 18.0):        # well away from the seam
+        near = grid.scale(x, 4.0, 0.8, False, 0.0)
+        blended = grid.scale(x, 4.0, 0.8, False, core.DEFAULT_BLEND_MM)
+        assert blended == pytest.approx(near, abs=0.02), (
+            f"blending shifted the taper at x={x}: {blended:.4f} vs {near:.4f}")
+
+
+# ---------------------------------------------------------------------------
+# 8. Full-strength mode
+# ---------------------------------------------------------------------------
+
+def test_classic_math_caps_the_wave_at_half_amplitude():
+    src = cube_gcode(layers=20, bottom=2, top=2)
+    grid, _ = core.build_solid_grid(src)
+    peak = max(grid.scale(5.0, 5.0, round(i * 0.2, 4)) for i in range(2, 20))
+    assert peak <= 0.5 + 1e-9, f"classic taper exceeded 0.5: {peak}"
+
+
+def test_full_strength_reaches_the_whole_amplitude_mid_span():
+    src = cube_gcode(layers=20, bottom=2, top=2)
+    grid, _ = core.build_solid_grid(src)
+    peak = max(grid.scale(5.0, 5.0, round(i * 0.2, 4), True) for i in range(2, 20))
+    assert peak > 0.9, f"full strength only reached {peak:.4f}"
+    assert peak <= 1.0 + 1e-9, f"full strength overshot: {peak}"
+
+
+def test_full_strength_still_fades_to_zero_at_the_skins():
+    src = cube_gcode(layers=20, bottom=2, top=2)
+    grid, _ = core.build_solid_grid(src)
+    assert grid.scale(5.0, 5.0, 0.4, True) == pytest.approx(0.0, abs=1e-6)
+    assert grid.scale(5.0, 5.0, 4.0, True) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_full_strength_doubles_the_wiggle_end_to_end():
+    src = cube_gcode(layers=20, bottom=2, top=2)
+    _, half = core.process(src, amplitude_spec="-0.2")
+    _, full = core.process(src, amplitude_spec="-0.2", full_strength=True)
+    assert full["max_wiggle"] > half["max_wiggle"] * 1.7, (
+        f"{full['max_wiggle']:.4f} vs {half['max_wiggle']:.4f}")
+    assert full["max_wiggle"] <= 0.2 + 1e-9
+
+
+# ---------------------------------------------------------------------------
+# 9. Running twice must not wave twice
+# ---------------------------------------------------------------------------
+
+def test_a_second_pass_changes_nothing():
+    """Orca can call the export step twice for one slice (file + upload)."""
+    src = cube_gcode()
+    once, st1 = core.process(src)
+    assert st1["moves"] > 0 and not st1["already_processed"]
+    twice, st2 = core.process(once)
+    assert st2["already_processed"] is True
+    assert st2["moves"] == 0
+    assert twice == once, "the second pass modified an already-waved file"
+
+
+def test_the_marker_is_written_once_and_is_findable():
+    out, _ = core.process(cube_gcode())
+    markers = [l for l in out if l.startswith(core.MARKER_PREFIX)]
+    assert len(markers) == 1, markers
+    assert core.MARKER_VERSION in markers[0]
+    assert core.already_processed(out)
+    assert not core.already_processed(cube_gcode())
+
+
+def test_a_file_with_no_waves_is_not_marked():
+    """Nothing was changed, so nothing should claim it was."""
+    src = [l for l in cube_gcode() if "Sparse infill" not in l]
+    out, st = core.process(src)
+    assert st["moves"] == 0
+    assert not core.already_processed(out), \
+        "an untouched file was stamped, so a later real run would skip it"

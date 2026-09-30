@@ -6,7 +6,7 @@
 # name = "Unlayered Infill"
 # description = "Non-planar sparse infill: rides a sine wave in Z so successive layers interlock instead of stacking as clean planes, tapering to flat where it meets the solid skin."
 # author = "Unlayered Infill plugin lane"
-# version = "0.1.0"
+# version = "0.2.0"
 # ///
 """Unlayered Infill for OrcaSlicer — non-planar sparse infill.
 
@@ -70,6 +70,17 @@ _DEFAULTS = {
     "amplitude": "-0.2",
     "frequency": 1.5,
     "segment_mm": 1.0,
+    # XY resolution of the solid-skin map. Each column gets its own floor and
+    # roof, so a ledge or a short neighbouring tower cannot distort the taper
+    # somewhere else in the part.
+    "cell_mm": 0.6,
+    # Smooth the taper across this radius of columns, so the step between two
+    # columns with very different roofs becomes a ramp instead of a kink.
+    "blend_mm": 2.0,
+    # The classic Tenger taper peaks at half the amplitude even mid-span.
+    # Turning this on lets it reach the full amplitude in the middle while
+    # still fading to nothing at the skins.
+    "full_strength": False,
     # Refuse to run on absolute-E G-code rather than corrupt it.
     "require_relative_e": True,
     # Write a JSONL record of every run next to the plugin.
@@ -183,6 +194,9 @@ class UnlayeredInfill(orca.slicing.SlicingPipelineCapabilityBase):
                 frequency=cfg["frequency"],
                 segment_mm=cfg["segment_mm"],
                 require_relative_e=_truthy(cfg["require_relative_e"]),
+                cell_mm=cfg["cell_mm"],
+                blend_mm=cfg["blend_mm"],
+                full_strength=_truthy(cfg["full_strength"]),
             )
         except npc.NonPlanarError as e:
             # A clear, actionable stop -- surfaced as a slicing error. The seam
@@ -198,6 +212,16 @@ class UnlayeredInfill(orca.slicing.SlicingPipelineCapabilityBase):
             return orca.ExecutionResult.success(
                 f"Unlayered Infill: skipped, file left untouched "
                 f"({type(e).__name__}: {e})")
+
+        if stats["already_processed"]:
+            # Orca ran the export step twice for one slice. The first call did
+            # the work; waving again would double every displacement.
+            _record_run(last_skipped="already waved")
+            log["already_processed"] = True
+            log["seconds"] = round(time.time() - log["started"], 3)
+            _write_log(log, do_log)
+            return orca.ExecutionResult.success(
+                "Unlayered Infill: already applied to this file, left as is")
 
         if not stats["moves"]:
             _record_run(last_moves=0, last_sections=stats["sections"])
@@ -220,7 +244,8 @@ class UnlayeredInfill(orca.slicing.SlicingPipelineCapabilityBase):
                 f"Unlayered Infill: could not write the G-code: {e}")
 
         _record_run(last_moves=stats["moves"], last_sections=stats["sections"],
-                    last_segments=stats["segments"])
+                    last_segments=stats["segments"], last_skipped=None,
+                    last_refused=None, last_columns=stats["solid_columns"])
         log.update(stats)
         log["seconds"] = round(time.time() - log["started"], 3)
         _write_log(log, do_log)

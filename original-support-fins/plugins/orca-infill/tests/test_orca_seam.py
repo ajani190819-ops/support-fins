@@ -233,3 +233,46 @@ def test_the_plugin_declares_no_dependencies():
     """The whole point of this lane: no numpy, no shapely, no restart."""
     head = SRC.read_text(encoding="utf-8").split("# ///")[1]
     assert "dependencies = []" in head, head
+
+
+def test_running_the_export_step_twice_does_not_double_the_wave(plugin, tmp_path):
+    """Orca invokes psGCodePostProcess separately for file export and upload.
+
+    Without the marker the second call waves the already-waved file, doubling
+    every Z displacement and splitting every segment again.
+    """
+    path = gcode_file(tmp_path)
+    cap = make_cap(plugin)
+    ctx = fake_orca.Ctx(fake_orca.Step.psGCodePostProcess, gcode_path=str(path))
+
+    r1 = cap.execute(ctx)
+    assert r1.status is fake_orca.PluginResult.Success, r1.message
+    after_first = path.read_text(encoding="utf-8")
+
+    r2 = cap.execute(ctx)
+    assert r2.status is fake_orca.PluginResult.Success, r2.message
+    assert "already applied" in r2.message, r2.message
+    assert path.read_text(encoding="utf-8") == after_first, \
+        "the second export pass modified the G-code again"
+
+
+def test_setup_check_reports_the_skip(plugin, tmp_path):
+    path = gcode_file(tmp_path)
+    cap = make_cap(plugin)
+    ctx = fake_orca.Ctx(fake_orca.Step.psGCodePostProcess, gcode_path=str(path))
+    cap.execute(ctx)
+    cap.execute(ctx)
+    res = plugin.UnlayeredInfillCheck().execute()
+    assert "The G-code step ran" in res.message
+
+
+def test_the_new_shaping_options_reach_the_engine(plugin, tmp_path):
+    """full_strength must actually change the output, not just be accepted."""
+    a = gcode_file(tmp_path / "a")
+    b = gcode_file(tmp_path / "b")
+    make_cap(plugin).execute(
+        fake_orca.Ctx(fake_orca.Step.psGCodePostProcess, gcode_path=str(a)))
+    make_cap(plugin, {"full_strength": True}).execute(
+        fake_orca.Ctx(fake_orca.Step.psGCodePostProcess, gcode_path=str(b)))
+    assert a.read_text(encoding="utf-8") != b.read_text(encoding="utf-8"), \
+        "full_strength was accepted but changed nothing"
