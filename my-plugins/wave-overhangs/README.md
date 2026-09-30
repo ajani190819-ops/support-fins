@@ -1,6 +1,6 @@
 # Wave Overhangs — OrcaSlicer plugin
 
-**v0.0.1 · EXPERIMENTAL · ready to install**
+**v0.0.2 · EXPERIMENTAL · ready to install**
 
 > **Check the G-code Preview before printing, and start with a small test part.**
 > The wave generator itself is tested, but the Orca-facing parts — object→bed
@@ -16,7 +16,7 @@ C++ fork.
 
 | | |
 | --- | --- |
-| File | `wave_overhangs_orca.py` (~32 KB) |
+| File | `wave_overhangs_orca.py` (~37 KB) |
 | Installs to | `%APPDATA%\OrcaSlicer\orca_plugins\WaveOverhangs\` |
 | Capabilities | `Wave Overhangs`, `Wave Overhangs - Check setup` |
 | Needs | Nothing — Orca installs numpy + shapely itself on first load |
@@ -54,11 +54,25 @@ It handles this plugin and every other one, and re-running it updates them.
 
 ## Use it
 
+> **You must set TWO things, not one.** Setting only the first is the usual
+> reason the plugin appears to do nothing at all.
+
 1. Run **Wave Overhangs - Check setup** from the Plugins dialog. Expect
    `deps: numpy + shapely loaded at startup (audit-safe)`.
-2. Process preset (Advanced): **Others > Slicing Pipeline Plugin** →
-   **Wave Overhangs**.
+2. Process preset (Advanced) → **Others**, and set **both**:
+   - **Slicing Pipeline Plugin** → **Wave Overhangs**
+     — plans the waves and carves the overhang out of the slices.
+   - **Post-processing plugin** → **Wave Overhangs**
+     — writes the wave moves into the exported G-code.
+
+   Both point at the same capability name, `Wave Overhangs`. They are separate
+   preset fields because they run at different times: the first during slicing,
+   the second at export.
 3. Slice a part with a steep overhang and **inspect the Preview**.
+
+If only the pipeline field is set, the plugin now detects it, **refuses to
+carve** (so the overhang still prints as normal solid material rather than
+coming out hollow), and says so in the slicing result message.
 
 ## What still needs calibration
 

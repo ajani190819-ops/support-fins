@@ -24,7 +24,7 @@
     {
       "id": "wave-overhangs",
       "name": "Wave Overhangs",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "status": "ready",
       "stability": "experimental",
       "summary": "Prints steep overhangs support-free with wave-propagated toolpaths. Check Preview before printing.",

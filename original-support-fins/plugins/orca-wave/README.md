@@ -6,11 +6,18 @@ printing steep overhangs support-free by filling the unsupported region with
 wave-propagated toolpaths — **as a plugin instead of a slicer fork**.
 
 > **Status: experimental spike.** The wave-toolpath generator and the G-code
-> emitter are pure Python and unit-tested offline. The two seams that touch a
-> real OrcaSlicer build (object→bed coordinate mapping and G-code splicing) are
-> implemented defensively but **not yet validated on a real slice** — see
-> "What still needs real-Orca validation" below. Treat output as untrusted until
-> you've checked it in the G-code preview.
+> emitter are pure Python and unit-tested offline. As of **0.0.2** both
+> Orca-facing seams are also driven end-to-end against a fake `orca` module
+> (`tests/test_orca_seams.py`) — that suite was written to diagnose "the plugin
+> does nothing" and caught three separate no-op bugs; see
+> [Fixed in 0.0.2](#fixed-in-002--why-it-did-nothing).
+>
+> What is still **not validated on a real slice** is the object→bed coordinate
+> mapping, which no offline test can settle — see "What still needs real-Orca
+> validation" below. Treat output as untrusted until you've checked it in the
+> G-code preview.
+>
+> **Setup takes two preset fields, not one** — see [Install](#install).
 
 ## Why a fork exists, and what a plugin can/can't do
 
@@ -54,9 +61,21 @@ python3 plugins/orca-wave/build.py      # -> plugins/orca-wave/build/wave_overha
 The build inlines `wave_core.py` into a single file (Orca installs `numpy` and
 `shapely` itself from the PEP 723 header on first load). Install the built file
 via **File > Plugins > Install local plugin**, then **fully restart Orca** (deps
-load on first startup — same audit-safe pattern as Support Fins). Select
-**Wave Overhangs** under **Others > Slicing Pipeline Plugin** in your process
-preset. Run **Wave Overhangs - Check setup** first.
+load on first startup — same audit-safe pattern as Support Fins). Run
+**Wave Overhangs - Check setup** first.
+
+Then set **both** of these in your process preset under **Others** — the
+plugin's two seams are driven by two different preset fields, and setting only
+the first makes the plugin a silent no-op:
+
+| Preset field | Drives | What it does |
+| --- | --- | --- |
+| **Slicing Pipeline Plugin** → `Wave Overhangs` | `Step.posSlice` | plans the waves, carves the overhang out of the slices |
+| **Post-processing plugin** → `Wave Overhangs` | `Step.psGCodePostProcess` | splices the wave moves into the exported G-code |
+
+If the post-processing field is not set, the plugin detects it and disables
+carving for that slice, so a half-configured setup degrades to "stock Orca
+output" rather than "overhang deleted and nothing printed in its place".
 
 ## Configuration
 
@@ -134,9 +153,36 @@ cd support-fins
 python3 -m pytest -q plugins/orca-wave/tests/
 ```
 
-Offline, shapely-only. Covers overhang detection, wavefront propagation (incl.
-diffraction around a hole and reaching the far edge), pattern ordering, and G-code
-flow/fan/speed.
+Offline, shapely-only. Two suites:
+
+- **`test_wave_core.py`** (14) — the pure geometry: overhang detection,
+  wavefront propagation (incl. diffraction around a hole and reaching the far
+  edge), pattern ordering, and G-code flow/fan/speed.
+- **`test_orca_seams.py`** (10) — the plugin's two Orca-facing seams, driven
+  through `fake_orca.py`: `posSlice` plans and carves a synthetic flat
+  overhang, `psGCodePostProcess` splices the result into an exported file,
+  re-slicing drops the stale stash, and a half-configured preset refuses to
+  carve. These seams used to be entirely uncovered, which is how three
+  no-op bugs shipped at once (see below).
+
+Run the second suite against the *built* single-file plugin too — `build.py`
+inlines `wave_core`, so the artifact users install must behave identically:
+
+```bash
+WAVE_PLUGIN_PATH=$PWD/../../../my-plugins/wave-overhangs/wave_overhangs_orca.py \
+  python3 -m pytest -q plugins/orca-wave/tests/test_orca_seams.py
+```
+
+### Fixed in 0.0.2 — why it did nothing
+
+| Bug | Effect |
+| --- | --- |
+| `region.slices.set(e, …)` passed a bare `ExPolygon` where the binding needs a sequence | raised `TypeError`, swallowed by a bare `except` in `_carve_layer` → **carving never happened** |
+| `psGCodePostProcess` is driven by the **`post_process_plugin`** preset field, not the slicing-pipeline field | users wired up only one of the two → **the splice never ran**, so every wave move was computed and discarded |
+| `_PLAN` was only cleared in the splice's `finally` | a slice whose export seam never fired left the stash populated → **stale waves leaked into the next export** |
+
+Also fixed: `if not manual and _CALIB is None or (...)` parsed as
+`(not manual and _CALIB is None) or (...)` — `and` binds tighter than `or`.
 
 ## Roadmap
 

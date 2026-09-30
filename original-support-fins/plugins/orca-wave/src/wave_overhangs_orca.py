@@ -6,7 +6,7 @@
 # name = "Wave Overhangs"
 # description = "Experimental: print steep overhangs support-free by replacing the overhang region with wave-propagated toolpaths (port of the WaveOverhangs fork's algorithm as a slicing-pipeline plugin)."
 # author = "Wave Overhangs plugin lane"
-# version = "0.0.1"
+# version = "0.0.2"
 # ///
 """Wave Overhangs for OrcaSlicer -- experimental slicing-pipeline plugin.
 
@@ -105,6 +105,65 @@ _DEFAULTS = {
 #            object->bed XY offset.
 _PLAN = {}
 _CALIB = None
+# Objects planned so far in the current slice run. posSlice fires once per
+# object, but nothing tells us when a *new* run starts -- seeing an object we
+# already planned means Orca re-sliced, so the old stash is stale and must go.
+# Without this, a slice whose export seam never fires leaves _PLAN populated
+# and the next export splices yesterday's waves.
+_PLANNED_OBJECTS = set()
+# Reasons _carve_layer bailed, surfaced in the result message instead of being
+# swallowed.
+_CARVE_ERRORS = []
+# Objects planned while the G-code seam was known NOT to be wired up.
+_NOT_WIRED = []
+
+_WIRING_HELP = (
+    "Wave Overhangs is only half-connected, so it cannot change anything. "
+    "It needs BOTH process-preset fields, not just one: "
+    "Others -> Slicing Pipeline Plugin -> Wave Overhangs (plans the waves), "
+    "AND Others -> Post-processing plugin -> Wave Overhangs (actually writes "
+    "them into the G-code). Carving was disabled for this slice so the "
+    "overhang still prints normally instead of coming out hollow."
+)
+
+
+def _reset_stash():
+    global _CALIB
+    _PLAN.clear()
+    _PLANNED_OBJECTS.clear()
+    del _CARVE_ERRORS[:]
+    _CALIB = None
+
+
+def _post_process_wired(ctx, name):
+    """Is this capability selected as a post-processing plugin?
+
+    The two seams are driven by two *different* preset fields:
+
+      * geometry steps (posSlice ...) -- the slicing-pipeline plugin field
+      * Step.psGCodePostProcess       -- `post_process_plugin`
+
+    Selecting the capability only as a slicing-pipeline plugin runs the
+    planner but never the splice, so every wave move is computed and then
+    dropped. Returns True / False, or None when the setting cannot be read
+    (in which case we must not assume the worst).
+    """
+    try:
+        val = ctx.config_value("post_process_plugin")
+    except Exception:
+        return None
+    if val is None:
+        return None
+    if isinstance(val, str):
+        items = [v.strip() for v in val.replace(";", "\n").splitlines()]
+    else:
+        try:
+            items = [str(v).strip() for v in val]
+        except TypeError:
+            return None
+    # post_process_plugin stores bare capability names; be lenient and also
+    # accept a full "<plugin>;<uuid>;<capability>" reference.
+    return any(i == name or i.endswith(";" + name) for i in items if i)
 
 
 def _cfg(self):
@@ -216,7 +275,9 @@ def _plan_object(po, cfg, layer_height, unit, log):
             else:
                 # A fully-supported layer: its G-code outline == its slice outline,
                 # so it makes a good self-calibration reference. Keep the biggest.
-                if not manual and _CALIB is None or (not manual and cur.area > calib_area):
+                # (The parentheses matter: `and` binds tighter than `or`, so the
+                # unbracketed form meant "no calibration yet" alone could win.)
+                if not manual and (_CALIB is None or cur.area > calib_area):
                     minx, miny, _, _ = cur.bounds
                     _CALIB = (round(z, 3), float(minx), float(miny))
                     calib_area = cur.area
@@ -263,13 +324,18 @@ def _carve_layer(layer, prev_poly, wcfg, unit):
             expolys = _shapely_to_expolys(p, inv)
             for e in expolys:
                 if first:
-                    region.slices.set(e, stype)
+                    # set()/append() take a *sequence* of ExPolygons (the
+                    # binding is an ExPolygons vector). Passing a bare
+                    # ExPolygon raises, and this used to be swallowed by the
+                    # except below -- so carving silently never happened.
+                    region.slices.set([e], stype)
                     first = False
                 else:
                     region.slices.append([e], stype)
         layer.make_slices()
         return True
-    except Exception:
+    except Exception as e:
+        _CARVE_ERRORS.append(f"{type(e).__name__}: {e}")
         return False
 
 
@@ -354,6 +420,19 @@ class WaveOverhangsSlicing(orca.slicing.SlicingPipelineCapabilityBase):
             if cfg["apply_to"] != "all" and _truthy(po.config_value("enable_support")):
                 return orca.ExecutionResult.success(
                     "Wave Overhangs: skipped (Orca supports on for this part)")
+
+            key = _object_key(po)
+            if key in _PLANNED_OBJECTS:   # Orca re-sliced: drop the stale stash
+                _reset_stash()
+            _PLANNED_OBJECTS.add(key)
+
+            # The waves only ever reach the printer through the G-code seam,
+            # which is driven by a separate preset field. If that is not set,
+            # carving would delete the overhang and put nothing back.
+            wired = _post_process_wired(ctx, self.get_name())
+            if wired is False and _truthy(cfg["carve_overhang"]):
+                cfg["carve_overhang"] = False
+                _NOT_WIRED.append(key)
             try:
                 lh = float(po.config_value("layer_height")
                            or ctx.config_value("layer_height") or 0.2)
@@ -371,14 +450,25 @@ class WaveOverhangsSlicing(orca.slicing.SlicingPipelineCapabilityBase):
                     orca.PluginResult.RecoverableError,
                     f"Wave Overhangs: {type(e).__name__}: {e}")
             log["seconds"] = round(time.time() - log["started"], 3)
+            log["post_process_wired"] = wired
+            if _CARVE_ERRORS:
+                log["carve_errors"] = list(_CARVE_ERRORS)
             _write_log(log)
+            if key in _NOT_WIRED:
+                return orca.ExecutionResult.success(
+                    f"Wave Overhangs: {msg}. {_WIRING_HELP}")
+            if _CARVE_ERRORS:
+                return orca.ExecutionResult.success(
+                    f"Wave Overhangs: {msg} (carve failed: {_CARVE_ERRORS[0]})")
             return orca.ExecutionResult.success(f"Wave Overhangs: {msg}")
 
         # --- g-code seam: splice ---
         if ctx.step == orca.slicing.Step.psGCodePostProcess:
-            global _CALIB
             if not _PLAN:
-                return orca.ExecutionResult.success("Wave Overhangs: nothing to splice")
+                return orca.ExecutionResult.success(
+                    "Wave Overhangs: nothing to splice. If you expected waves, "
+                    "check that Wave Overhangs is also selected under Others -> "
+                    "Slicing Pipeline Plugin, which is what plans them.")
             log = {"phase": "gcode", "started": time.time()}
             try:
                 n = _splice_gcode(ctx.gcode_path, cfg, log)
@@ -389,8 +479,7 @@ class WaveOverhangsSlicing(orca.slicing.SlicingPipelineCapabilityBase):
                 return orca.ExecutionResult.success(
                     f"Wave Overhangs: splice skipped ({type(e).__name__})")
             finally:
-                _PLAN.clear()
-                _CALIB = None
+                _reset_stash()
             log["seconds"] = round(time.time() - log["started"], 3)
             _write_log(log)
             return orca.ExecutionResult.success(
@@ -420,8 +509,15 @@ class WaveOverhangsCheck(orca.script.ScriptPluginCapabilityBase):
                 orca.PluginResult.RecoverableError,
                 f"orca.host.model() failed: {type(e).__name__}: {e}")
         lines.append("EXPERIMENTAL: validate object->bed XY mapping (_bed_offset) "
-                     "and enable carve_overhang before trusting output.")
-        lines.append("next: choose Wave Overhangs under Others -> Slicing Pipeline Plugin")
+                     "before trusting output.")
+        lines.append("")
+        lines.append("Wave Overhangs needs TWO settings, in the process preset.")
+        lines.append("Setting only the first one is the usual reason nothing happens:")
+        lines.append("  1. Others -> Slicing Pipeline Plugin  -> Wave Overhangs")
+        lines.append("     plans the waves and carves the overhang out of the slices")
+        lines.append("  2. Others -> Post-processing plugin   -> Wave Overhangs")
+        lines.append("     writes the wave moves into the exported G-code")
+        lines.append("Both point at the same capability name: 'Wave Overhangs'.")
         return orca.ExecutionResult.success("\n".join(lines))
 
 

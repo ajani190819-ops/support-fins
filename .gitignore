@@ -30,3 +30,6 @@ original-support-fins/prototype/examples/real/
 # that Install-Orca-Plugins.bat downloads, so those .py files are committed on
 # purpose. Only throwaway output is ignored here.
 my-plugins/**/*.log
+
+# local dev virtualenv (pytest/numpy/shapely for the plugin test suites)
+.venv/
