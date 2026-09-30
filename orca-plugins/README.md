@@ -37,6 +37,13 @@ Each plugin also ships a **"… - Check setup"** capability. Run it after a
 slice: it reports which pipeline steps actually fired, so "nothing happened"
 turns into a specific answer instead of a guess.
 
+## Working on this
+
+[`HANDOFF.md`](HANDOFF.md) is the orientation doc: what OrcaSlicer's
+plugin system actually does, the design decisions worth keeping, the
+gotchas that will bite you, and the known gaps. Read it before changing
+anything.
+
 ## Layout
 
 ```
