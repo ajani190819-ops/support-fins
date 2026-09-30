@@ -13,7 +13,7 @@ as its weakest layer boundary.
 
 The other two lanes in this repo (`plugins/orca`, `plugins/orca-wave`) inject
 geometry at `Step.posSlice` and let Orca own flow, speed and cooling. That is
-deliberate, and [plugins/orca/README.md](../orca/README.md) argues for it.
+deliberate, and plugins/orca/README.md argues for it.
 
 Non-planar infill is the exception: **a slice polygon is planar by
 construction**. There is no way to express a wave in Z through the slicing seam,

@@ -154,7 +154,7 @@ The engine is adapted from **`nonPlanarInfill.py`**, Copyright © 2025
 GPL-3.0.
 
 The tool it came to us through is kept verbatim at
-[`reference/nonplanar_infill_tool.py`](reference/nonplanar_infill_tool.py) — it
+[`reference/nonplanar_infill_tool.py`](../reference/nonplanar_infill_tool.py) — it
 still works standalone (double-click it, or
 `python nonplanar_infill_tool.py yourfile.gcode`) and is useful for
 side-by-side comparison.
