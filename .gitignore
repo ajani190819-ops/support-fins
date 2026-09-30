@@ -34,3 +34,6 @@ my-plugins/**/*.log
 
 # local dev virtualenv (pytest/numpy/shapely for the plugin test suites)
 .venv/
+
+# plugin runtime state (records which steps actually fired)
+*_state.json

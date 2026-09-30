@@ -22,10 +22,17 @@ no matter how the polygons are shaped. So this plugin runs at
 where `ctx.gcode_path` points at the working G-code and filesystem access to it
 needs no audit prompt.
 
-That has a user-visible consequence: it goes in the **Post-processing plugin**
-preset field, *not* **Slicing Pipeline Plugin**. Those are two different fields
-driving two different sets of steps. (Wave Overhangs needs both, because it has
-a seam in each; this plugin only has the one.)
+Selecting it is simple: under **Others**, pick `Unlayered Infill` in every
+plugin picker your build offers. Some builds show a single *Slicing Pipeline
+Plugin* field, some also show a separate *Post-processing plugin* field, and
+which one drives `psGCodePostProcess` is build-dependent. This plugin returns
+`success()` immediately for every other step, so selecting it in all of them
+costs nothing.
+
+Rather than read a preset key whose name we cannot rely on, the plugin
+**records whether its seam actually fired** (in `unlayered_infill_state.json`
+next to itself) and `Unlayered Infill - Check setup` reports it. One slice
+answers the question definitively.
 
 ## Layout
 

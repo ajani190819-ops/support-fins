@@ -44,17 +44,24 @@ immediately — no restart needed.
 
 ## Use it
 
-> **One setting, and it is *not* the one the other plugins use.**
-
 1. Run **Unlayered Infill - Check setup** from the Plugins dialog.
 2. Printer Settings → Advanced → enable **Use relative E distances**.
    The plugin refuses to run on absolute-E G-code rather than corrupt it.
-3. Process preset (Advanced) → **Others** → **Post-processing plugin** →
-   **Unlayered Infill**.
-4. Slice and **inspect the Preview**.
+3. Process preset (Advanced) → **Others** → select **Unlayered Infill** in the
+   plugin picker. **If your build shows more than one picker**, select it in
+   **all** of them: this plugin ignores every step except the G-code export
+   one, so there is no downside to selecting it everywhere.
+4. Slice, then **run Check setup again** — it reports whether the export step
+   actually ran:
 
-**Do not put this one in the Slicing Pipeline Plugin field.** That field drives
-the geometry steps, which this plugin ignores — see below for why.
+   ```
+   --- what the last export actually did ---
+   The G-code step ran: 418 infill move(s) across 37 section(s)
+   ```
+
+   If it says `NEVER RUN`, the export step isn't being reached and nothing in
+   your G-code changed.
+5. **Inspect the Preview** before printing.
 
 ### Why this plugin is a post-processor when the others aren't
 

@@ -6,7 +6,7 @@
 # name = "Wave Overhangs"
 # description = "Experimental: print steep overhangs support-free by replacing the overhang region with wave-propagated toolpaths (port of the WaveOverhangs fork's algorithm as a slicing-pipeline plugin)."
 # author = "Wave Overhangs plugin lane"
-# version = "0.0.2"
+# version = "0.0.3"
 # ///
 """Wave Overhangs for OrcaSlicer -- experimental slicing-pipeline plugin.
 
@@ -82,7 +82,11 @@ except ImportError:  # pragma: no cover - replaced by the inlined module at buil
 _DEFAULTS = {
     "enabled": True,
     "apply_to": "no-supports",   # "no-supports" | "all"
-    "carve_overhang": True,      # remove the overhang area from Orca's slices
+    # Remove the overhang from Orca's slices so the waves replace it rather
+    # than overlap it. Only ever applied once the G-code splice has actually
+    # been observed running (see _splice_confirmed) -- carving without it
+    # would leave a hole.
+    "carve_overhang": True,
     "overhang_tol": 0.05,
     "min_overhang_area": 0.5,
     "line_spacing": 0.35,
@@ -118,12 +122,11 @@ _CARVE_ERRORS = []
 _NOT_WIRED = []
 
 _WIRING_HELP = (
-    "Wave Overhangs is only half-connected, so it cannot change anything. "
-    "It needs BOTH process-preset fields, not just one: "
-    "Others -> Slicing Pipeline Plugin -> Wave Overhangs (plans the waves), "
-    "AND Others -> Post-processing plugin -> Wave Overhangs (actually writes "
-    "them into the G-code). Carving was disabled for this slice so the "
-    "overhang still prints normally instead of coming out hollow."
+    "Carving is off because the G-code step has not been seen running yet. "
+    "Waves were planned and will be spliced in if the export step fires; the "
+    "overhang also still prints normally, so a part is never left hollow. "
+    "Slice once, then run 'Wave Overhangs - Check setup' to see whether the "
+    "G-code step ran. Once it has, carving turns itself on."
 )
 
 
@@ -135,35 +138,42 @@ def _reset_stash():
     _CALIB = None
 
 
-def _post_process_wired(ctx, name):
-    """Is this capability selected as a post-processing plugin?
+def _state_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "wave_overhangs_state.json")
 
-    The two seams are driven by two *different* preset fields:
 
-      * geometry steps (posSlice ...) -- the slicing-pipeline plugin field
-      * Step.psGCodePostProcess       -- `post_process_plugin`
-
-    Selecting the capability only as a slicing-pipeline plugin runs the
-    planner but never the splice, so every wave move is computed and then
-    dropped. Returns True / False, or None when the setting cannot be read
-    (in which case we must not assume the worst).
-    """
+def _load_state():
+    """What happened on previous slices. Empty dict if we have no history."""
     try:
-        val = ctx.config_value("post_process_plugin")
+        with open(_state_path(), "r", encoding="utf-8") as f:
+            s = json.load(f)
+        return s if isinstance(s, dict) else {}
     except Exception:
-        return None
-    if val is None:
-        return None
-    if isinstance(val, str):
-        items = [v.strip() for v in val.replace(";", "\n").splitlines()]
-    else:
-        try:
-            items = [str(v).strip() for v in val]
-        except TypeError:
-            return None
-    # post_process_plugin stores bare capability names; be lenient and also
-    # accept a full "<plugin>;<uuid>;<capability>" reference.
-    return any(i == name or i.endswith(";" + name) for i in items if i)
+        return {}
+
+
+def _save_state(state):
+    try:
+        with open(_state_path(), "w", encoding="utf-8") as f:
+            json.dump(state, f)
+    except Exception:
+        pass
+
+
+def _splice_confirmed():
+    """Has Step.psGCodePostProcess ever actually run for this install?
+
+    This is measured, not guessed. Which preset field drives the export seam
+    differs between OrcaSlicer builds -- some expose one plugin picker, some
+    two -- so rather than read a setting whose name we cannot rely on, we
+    record what really fires and behave accordingly.
+
+    Until the splice is observed at least once, carving is refused: removing
+    the overhang from the slices is only safe if something puts the waves
+    back, and an unconfirmed seam might not.
+    """
+    return bool(_load_state().get("splice_ever"))
 
 
 def _cfg(self):
@@ -426,11 +436,11 @@ class WaveOverhangsSlicing(orca.slicing.SlicingPipelineCapabilityBase):
                 _reset_stash()
             _PLANNED_OBJECTS.add(key)
 
-            # The waves only ever reach the printer through the G-code seam,
-            # which is driven by a separate preset field. If that is not set,
-            # carving would delete the overhang and put nothing back.
-            wired = _post_process_wired(ctx, self.get_name())
-            if wired is False and _truthy(cfg["carve_overhang"]):
+            # Waves only reach the printer through the G-code seam. Until we
+            # have actually seen that seam run, carving is unsafe: it would
+            # remove the overhang with nothing to put back.
+            wired = _splice_confirmed()
+            if not wired and _truthy(cfg["carve_overhang"]):
                 cfg["carve_overhang"] = False
                 _NOT_WIRED.append(key)
             try:
@@ -449,8 +459,14 @@ class WaveOverhangsSlicing(orca.slicing.SlicingPipelineCapabilityBase):
                 return orca.ExecutionResult.failure(
                     orca.PluginResult.RecoverableError,
                     f"Wave Overhangs: {type(e).__name__}: {e}")
+            st = _load_state()
+            st["last_plan_at"] = time.time()
+            st["last_plan_layers"] = log.get("planned_layers", 0)
+            st["plans_since_splice"] = int(st.get("plans_since_splice", 0)) + 1
+            _save_state(st)
+
             log["seconds"] = round(time.time() - log["started"], 3)
-            log["post_process_wired"] = wired
+            log["splice_confirmed"] = wired
             if _CARVE_ERRORS:
                 log["carve_errors"] = list(_CARVE_ERRORS)
             _write_log(log)
@@ -480,6 +496,14 @@ class WaveOverhangsSlicing(orca.slicing.SlicingPipelineCapabilityBase):
                     f"Wave Overhangs: splice skipped ({type(e).__name__})")
             finally:
                 _reset_stash()
+            # The seam ran. Record it: this is what lets carving switch on.
+            st = _load_state()
+            st["splice_ever"] = True
+            st["last_splice_at"] = time.time()
+            st["last_splice_layers"] = n
+            st["plans_since_splice"] = 0
+            _save_state(st)
+
             log["seconds"] = round(time.time() - log["started"], 3)
             _write_log(log)
             return orca.ExecutionResult.success(
@@ -510,14 +534,40 @@ class WaveOverhangsCheck(orca.script.ScriptPluginCapabilityBase):
                 f"orca.host.model() failed: {type(e).__name__}: {e}")
         lines.append("EXPERIMENTAL: validate object->bed XY mapping (_bed_offset) "
                      "before trusting output.")
+
+        # Report what actually happened, rather than guessing from settings.
+        st = _load_state()
         lines.append("")
-        lines.append("Wave Overhangs needs TWO settings, in the process preset.")
-        lines.append("Setting only the first one is the usual reason nothing happens:")
-        lines.append("  1. Others -> Slicing Pipeline Plugin  -> Wave Overhangs")
-        lines.append("     plans the waves and carves the overhang out of the slices")
-        lines.append("  2. Others -> Post-processing plugin   -> Wave Overhangs")
-        lines.append("     writes the wave moves into the exported G-code")
-        lines.append("Both point at the same capability name: 'Wave Overhangs'.")
+        lines.append("--- what the last slice actually did ---")
+        if not st.get("last_plan_at"):
+            lines.append("No slice recorded yet. Select Wave Overhangs in your")
+            lines.append("process preset under Others (whichever plugin picker")
+            lines.append("your build shows), slice something with a steep")
+            lines.append("overhang, then run this check again.")
+        else:
+            lines.append(f"planning step (posSlice): ran, "
+                         f"{st.get('last_plan_layers', 0)} layer(s) with waves")
+            if st.get("splice_ever"):
+                lines.append(f"G-code step (psGCodePostProcess): ran, "
+                             f"{st.get('last_splice_layers', 0)} layer(s) spliced")
+                lines.append("")
+                lines.append("Both steps work. Carving is enabled from now on.")
+            else:
+                lines.append("G-code step (psGCodePostProcess): NEVER RUN")
+                lines.append("")
+                lines.append(f"Waves have been planned {st.get('plans_since_splice', 0)} "
+                             f"time(s) and never written out.")
+                lines.append("That is why nothing changes in the G-code.")
+                lines.append("")
+                lines.append("Your OrcaSlicer build decides which preset field")
+                lines.append("drives the export step. Under Others, select")
+                lines.append("'Wave Overhangs' in EVERY plugin picker you can")
+                lines.append("find -- typically 'Slicing Pipeline Plugin', and")
+                lines.append("also 'Post-processing plugin' if your build has")
+                lines.append("one. Then slice again and re-run this check.")
+                lines.append("")
+                lines.append("Carving stays off until the export step is seen,")
+                lines.append("so your overhangs still print normally meanwhile.")
         return orca.ExecutionResult.success("\n".join(lines))
 
 

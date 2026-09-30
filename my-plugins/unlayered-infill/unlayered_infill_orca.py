@@ -25,10 +25,16 @@ WHY THIS ONE IS A POST-PROCESSOR
   `Step.psGCodePostProcess`, the supported seam for rewriting the exported
   file, where `ctx.gcode_path` points at the working G-code.
 
-SETUP — ONE preset field
-  Process preset > Others > **Post-processing plugin** > "Unlayered Infill".
-  It does *not* go in the Slicing Pipeline Plugin field; that field drives the
-  geometry steps, which this plugin ignores.
+SETUP
+  Process preset > Others > select "Unlayered Infill" in the plugin picker.
+  Which picker drives the export step depends on your OrcaSlicer build: some
+  show a single "Slicing Pipeline Plugin" field, some also show a separate
+  "Post-processing plugin" field. Select this capability in every plugin
+  picker you have; the plugin ignores every step except the export one, so
+  there is no harm in selecting it in all of them.
+
+  Slice once, then run "Unlayered Infill - Check setup": it reports whether
+  the export step actually ran, so you never have to guess.
 
 REQUIREMENTS
   * Relative extrusion (`M83`). Splitting moves under absolute E (`M82`) would
@@ -96,6 +102,43 @@ def _truthy(v):
     return bool(v)
 
 
+def _state_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "unlayered_infill_state.json")
+
+
+def _load_state():
+    """What happened on previous exports. Empty dict if there is no history."""
+    try:
+        with open(_state_path(), "r", encoding="utf-8") as f:
+            st = json.load(f)
+        return st if isinstance(st, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_state(state):
+    try:
+        with open(_state_path(), "w", encoding="utf-8") as f:
+            json.dump(state, f)
+    except Exception:
+        pass
+
+
+def _record_run(**fields):
+    """Remember that the export step fired, and what it did.
+
+    Which preset field drives Step.psGCodePostProcess differs between
+    OrcaSlicer builds, so rather than read a setting whose name we cannot
+    rely on, the setup check reports what was actually observed.
+    """
+    st = _load_state()
+    st["seam_ever"] = True
+    st["last_run_at"] = time.time()
+    st.update(fields)
+    _save_state(st)
+
+
 def _write_log(entry, enabled=True):
     if not enabled:
         return
@@ -148,7 +191,9 @@ class UnlayeredInfill(orca.slicing.SlicingPipelineCapabilityBase):
                 require_relative_e=_truthy(cfg["require_relative_e"]),
             )
         except npc.NonPlanarError as e:
-            # A clear, actionable stop -- surfaced as a slicing error.
+            # A clear, actionable stop -- surfaced as a slicing error. The seam
+            # still demonstrably fired, so record that.
+            _record_run(last_refused=str(e))
             log["refused"] = str(e)
             _write_log(log, do_log)
             return orca.ExecutionResult.failure(
@@ -161,6 +206,7 @@ class UnlayeredInfill(orca.slicing.SlicingPipelineCapabilityBase):
                 f"({type(e).__name__}: {e})")
 
         if not stats["moves"]:
+            _record_run(last_moves=0, last_sections=stats["sections"])
             log.update(stats)
             log["seconds"] = round(time.time() - log["started"], 3)
             _write_log(log, do_log)
@@ -179,6 +225,8 @@ class UnlayeredInfill(orca.slicing.SlicingPipelineCapabilityBase):
                 orca.PluginResult.RecoverableError,
                 f"Unlayered Infill: could not write the G-code: {e}")
 
+        _record_run(last_moves=stats["moves"], last_sections=stats["sections"],
+                    last_segments=stats["segments"])
         log.update(stats)
         log["seconds"] = round(time.time() - log["started"], 3)
         _write_log(log, do_log)
@@ -202,11 +250,30 @@ class UnlayeredInfillCheck(orca.script.ScriptPluginCapabilityBase):
                 "The engine module is missing — reinstall the plugin.")
         lines.append("dependencies: none (pure standard library, no restart needed)")
         lines.append("")
-        lines.append("This plugin needs exactly ONE process-preset field:")
-        lines.append("  Others -> Post-processing plugin -> Unlayered Infill")
-        lines.append("")
-        lines.append("Do NOT put it in 'Slicing Pipeline Plugin' — that field")
-        lines.append("drives the geometry steps, which this plugin ignores.")
+        st = _load_state()
+        lines.append("--- what the last export actually did ---")
+        if not st.get("seam_ever"):
+            lines.append("The G-code step has NEVER RUN on this machine.")
+            lines.append("")
+            lines.append("In your process preset under Others, select")
+            lines.append("'Unlayered Infill' in EVERY plugin picker you can")
+            lines.append("find -- 'Slicing Pipeline Plugin', and also")
+            lines.append("'Post-processing plugin' if your build has one.")
+            lines.append("Which one drives the export step depends on the")
+            lines.append("build; this plugin ignores all the other steps, so")
+            lines.append("selecting it in all of them is harmless.")
+            lines.append("")
+            lines.append("Then slice, export, and run this check again.")
+        elif st.get("last_refused"):
+            lines.append("The G-code step ran, but the plugin refused:")
+            lines.append(f"  {st['last_refused']}")
+        else:
+            lines.append(f"The G-code step ran: {st.get('last_moves', 0)} infill "
+                         f"move(s) across {st.get('last_sections', 0)} section(s)")
+            if not st.get("last_moves"):
+                lines.append("...but there was no sparse infill between two")
+                lines.append("solid skins to wave. Check infill density is not")
+                lines.append("0% and the part has top/bottom solid layers.")
         lines.append("")
         lines.append("Your printer must use RELATIVE extrusion:")
         lines.append("  Printer Settings -> Advanced -> Use relative E distances")

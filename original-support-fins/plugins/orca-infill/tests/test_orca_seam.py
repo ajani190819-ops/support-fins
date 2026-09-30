@@ -33,6 +33,8 @@ def plugin(tmp_path, monkeypatch):
     sys.modules["unlayered_infill_orca"] = mod
     spec.loader.exec_module(mod)
     monkeypatch.setattr(mod, "_write_log", lambda e, enabled=True: None)
+    # the plugin records whether its seam actually fired; keep that per-test
+    monkeypatch.setattr(mod, "_state_path", lambda: str(tmp_path / "state.json"))
     return mod
 
 
@@ -188,12 +190,43 @@ def test_percent_amplitude_reads_the_layer_height(plugin, tmp_path):
     assert "of layer height 0.200 mm" in res.message
 
 
-def test_setup_check_points_at_the_right_preset_field(plugin):
+def test_setup_check_reports_whether_the_seam_ever_ran(plugin, tmp_path):
+    """Observed behaviour, not a guess about which preset field to use."""
     res = plugin.UnlayeredInfillCheck().execute()
     assert res.status is fake_orca.PluginResult.Success, res.message
-    assert "Post-processing plugin" in res.message
-    assert "Do NOT put it in 'Slicing Pipeline Plugin'" in res.message
+    assert "NEVER RUN" in res.message
+    assert "EVERY plugin picker" in res.message
     assert "relative E distances" in res.message
+
+    # after a real run it reports what happened
+    path = gcode_file(tmp_path)
+    make_cap(plugin).execute(fake_orca.Ctx(fake_orca.Step.psGCodePostProcess,
+                                           gcode_path=str(path)))
+    res = plugin.UnlayeredInfillCheck().execute()
+    assert "The G-code step ran" in res.message
+    assert "NEVER RUN" not in res.message
+
+
+def test_a_refusal_still_records_that_the_seam_fired(plugin, tmp_path):
+    src = [l.replace("M83 ; relative extrusion\n", "M82 ; absolute\n")
+           for l in cube_gcode()]
+    path = gcode_file(tmp_path, src)
+    make_cap(plugin).execute(fake_orca.Ctx(fake_orca.Step.psGCodePostProcess,
+                                           gcode_path=str(path)))
+    res = plugin.UnlayeredInfillCheck().execute()
+    assert "refused" in res.message
+    assert "relative E" in res.message
+
+
+def test_an_empty_part_explains_itself(plugin, tmp_path):
+    src = ["M83\n", "G1 Z0.2 F600\n", ";TYPE:Outer wall\n",
+           "G1 X1.000 Y1.000 E0.10000\n", "G1 X9.000 Y1.000 E0.50000\n"]
+    path = gcode_file(tmp_path, src)
+    make_cap(plugin).execute(fake_orca.Ctx(fake_orca.Step.psGCodePostProcess,
+                                           gcode_path=str(path)))
+    res = plugin.UnlayeredInfillCheck().execute()
+    assert "The G-code step ran" in res.message
+    assert "no sparse infill between two" in res.message
 
 
 def test_the_plugin_declares_no_dependencies():

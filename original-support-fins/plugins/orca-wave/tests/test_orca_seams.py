@@ -54,6 +54,8 @@ def plugin(tmp_path, monkeypatch):
     log = tmp_path / "wave.jsonl"
     monkeypatch.setattr(mod, "_write_log",
                         lambda e: log.open("a").write(json.dumps(e, default=str) + "\n"))
+    # the plugin records which steps really fired; keep that per-test
+    monkeypatch.setattr(mod, "_state_path", lambda: str(tmp_path / "state.json"))
     mod._log_path = log
     mod._orca = orca
     mod._PLAN.clear()
@@ -78,14 +80,19 @@ def gcode_for(layers):
 
 
 def run_slice(plugin, layers, config=None, wired=True):
-    """Drive posSlice. `wired` = is the capability also a post-processing plugin."""
+    """Drive posSlice.
+
+    `wired` = has the G-code seam already been observed running? The plugin
+    measures this rather than reading a preset field, so the test sets the
+    recorded state directly.
+    """
+    if wired:
+        plugin._save_state({"splice_ever": True})
     cap = plugin.WaveOverhangsSlicing()
     if config:
         cap._config = json.dumps(config)
     po = fake_orca.FakePrintObject(layers)
-    ctx = fake_orca.Ctx(
-        fake_orca.Step.posSlice, obj=po,
-        config={"post_process_plugin": ["Wave Overhangs"] if wired else []})
+    ctx = fake_orca.Ctx(fake_orca.Step.posSlice, obj=po)
     return cap, cap.execute(ctx)
 
 
@@ -187,12 +194,11 @@ def test_unrelated_steps_are_ignored(plugin):
 # --------------------------------------------------------------------------
 
 def test_carving_without_a_gcode_seam_does_not_delete_the_overhang(plugin):
-    """If the export seam will not run, carving would print a hole.
+    """Until the export seam is observed, carving would risk a hole.
 
-    A user who selects the capability only under `Slicing Pipeline Plugin`
-    (and not as a post-processing plugin) gets posSlice but never
-    psGCodePostProcess. Carving there removes the overhang from the slices
-    and nothing ever puts it back.
+    Which preset field drives psGCodePostProcess varies between OrcaSlicer
+    builds, so the plugin does not guess: it refuses to carve until it has
+    actually seen the splice run at least once.
     """
     layers = build_layers()
     before = [layer.polygon_mm().area for layer in layers]
@@ -201,9 +207,8 @@ def test_carving_without_a_gcode_seam_does_not_delete_the_overhang(plugin):
     assert after == before, (
         "the overhang was carved out of the slices even though the G-code "
         "seam is not wired up -- that prints a hole")
-    assert "Post-processing plugin" in res.message, (
-        "the user was given no hint that the plugin is half-connected: "
-        + res.message)
+    assert "Carving is off" in res.message, (
+        "the user was given no hint about why nothing was carved: " + res.message)
 
 
 def test_reslicing_drops_the_stale_plan(plugin):
@@ -232,9 +237,43 @@ def test_reslicing_drops_the_stale_plan(plugin):
         f"waves left over from the previous slice: {sorted(plugin._PLAN)}"
 
 
-def test_setup_check_names_both_required_settings(plugin):
+def test_setup_check_reports_what_actually_ran(plugin):
+    """The check must describe observed behaviour, not guess from settings."""
+    # nothing has happened yet
     res = plugin.WaveOverhangsCheck().execute()
     assert res.status is fake_orca.PluginResult.Success, res.message
-    assert "Slicing Pipeline Plugin" in res.message
-    assert "Post-processing plugin" in res.message, \
-        "the setup check still only tells users half the wiring"
+    assert "No slice recorded yet" in res.message
+
+    # planned, but the export seam never fired
+    layers = build_layers()
+    run_slice(plugin, layers, wired=False)
+    res = plugin.WaveOverhangsCheck().execute()
+    assert "NEVER RUN" in res.message
+    assert "never written out" in res.message
+
+    # now the seam runs
+    plugin._save_state({"splice_ever": True, "last_plan_at": 1,
+                        "last_splice_layers": 3})
+    res = plugin.WaveOverhangsCheck().execute()
+    assert "Both steps work" in res.message
+
+
+def test_a_successful_splice_unlocks_carving(plugin, tmp_path):
+    """First slice: no carve. After the seam is seen: carve."""
+    layers = build_layers()
+    before = [l.polygon_mm().area for l in layers]
+    cap, res = run_slice(plugin, layers, wired=False)
+    assert [l.polygon_mm().area for l in layers] == before, "carved too early"
+
+    path = tmp_path / "out.gcode"
+    path.write_text(gcode_for(layers), encoding="utf-8")
+    cap.execute(fake_orca.Ctx(fake_orca.Step.psGCodePostProcess,
+                              gcode_path=str(path)))
+    assert plugin._load_state().get("splice_ever") is True
+
+    layers2 = build_layers()
+    before2 = [l.polygon_mm().area for l in layers2]
+    _, res2 = run_slice(plugin, layers2, wired=False)   # state already says yes
+    after2 = [l.polygon_mm().area for l in layers2]
+    assert any(a < b - 1e-6 for a, b in zip(after2, before2)), (
+        "carving did not switch on after the splice was confirmed: " + res2.message)
