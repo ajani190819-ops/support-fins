@@ -42,16 +42,22 @@ Just double-click the same `.bat` again. Each run re-downloads the latest build
 and overwrites the installed copy. Keep the file in your Downloads/Tools folder
 and re-run it whenever you want updates or to add the other plugin.
 
-## If a plugin doesn't appear after restart
+## If a plugin doesn't appear (do this — it's the reliable path)
 
-Some Orca builds only register plugins installed through the UI. The script leaves
-the plugin file in a known place, so you can finish via
-**File > Plugins > Install local plugin** and pick:
+Many OrcaSlicer builds only register a plugin when it's added through the UI, so a
+plain file-copy into `orca_plugins\` may never show up. To make that easy, every
+run also drops the downloaded files into **`%USERPROFILE%\Downloads\OrcaPlugins`**
+and opens that folder for you.
+
+In OrcaSlicer: **File > Plugins > (arrow next to "Browse plugins") > Install local
+plugin**, then pick from that folder:
 
 ```
-<data_dir>\orca_plugins\SupportFins\support_fins_orca.py
-<data_dir>\orca_plugins\WaveOverhangs\wave_overhangs_orca.py
+%USERPROFILE%\Downloads\OrcaPlugins\support_fins_orca.py
+%USERPROFILE%\Downloads\OrcaPlugins\wave_overhangs_orca.py
 ```
+
+Enable the plugin, then fully quit and reopen Orca.
 
 ## Environment overrides
 

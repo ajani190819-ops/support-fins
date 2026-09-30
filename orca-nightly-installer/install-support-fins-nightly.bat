@@ -32,6 +32,10 @@ if "%HERE:~-1%"=="\" set "HERE=%HERE:~0,-1%"
 if not defined PLUGIN_BRANCH set "PLUGIN_BRANCH=arena/01a0f0b3-support-fins"
 set "RAWBASE=https://raw.githubusercontent.com/ajani190819-ops/support-fins/%PLUGIN_BRANCH%/orca-nightly-installer/manual-install"
 
+rem Folder we drop the downloaded plugin files into (handy for UI install).
+set "DLDIR=%USERPROFILE%\Downloads\OrcaPlugins"
+if not exist "%DLDIR%" mkdir "%DLDIR%" 2>nul
+
 echo ===========================================================================
 echo  OrcaSlicer plugins  --  install / update
 echo  (no Python/Node/Git needed; downloads the ready-built plugins)
@@ -83,20 +87,26 @@ if "%OK_COUNT%"=="0" (
 
 echo.
 echo ===========================================================================
-echo  Done. Installed / updated %OK_COUNT% plugin(s).
+echo  Downloaded / updated %OK_COUNT% plugin file(s).
+echo ===========================================================================
 echo.
-echo  NEXT STEPS in OrcaSlicer:
-echo    1. FULLY QUIT and reopen OrcaSlicer (deps install on first load).
-echo    2. File ^> Plugins  -- confirm the plugin(s) are enabled.
-echo    3. Run the "... - Check setup" capability from the Plugins dialog.
-echo    4. In your process preset (Advanced): Others ^> Slicing Pipeline Plugin
+echo  MOST RELIABLE way to make them show up (do this now):
+echo    1. Open OrcaSlicer.
+echo    2. File ^> Plugins  ^>  arrow next to "Browse plugins"  ^>
+echo       "Install local plugin".
+echo    3. Pick the file(s) from the folder that just opened:
+echo         "%DLDIR%"
+echo    4. Enable the plugin(s), then FULLY QUIT and reopen OrcaSlicer.
+echo    5. Run the "... - Check setup" capability from the Plugins dialog.
+echo    6. In your process preset (Advanced): Others ^> Slicing Pipeline Plugin
 echo       -- choose "Support Fins" and/or "Wave Overhangs".
 echo.
-echo  If a plugin does not appear after restart, use File ^> Plugins ^>
-echo  Install local plugin and pick the .py the script left in its folder:
-echo    "%PLUGIN_ROOT%\SupportFins\support_fins_orca.py"
-echo    "%PLUGIN_ROOT%\WaveOverhangs\wave_overhangs_orca.py"
+echo  (The script also copied them into "%PLUGIN_ROOT%" for builds that
+echo   auto-discover plugins, but the UI install above is the sure way.)
 echo ===========================================================================
+
+rem Open the download folder so the files are right there for the UI installer.
+start "" "%DLDIR%" 2>nul
 goto :done
 
 
@@ -133,6 +143,10 @@ if exist "%GI_LOCAL%" (
     )
 )
 
+rem 1) Save a copy into Downloads\OrcaPlugins for UI install (the reliable path).
+copy /Y "%GI_SRC%" "%DLDIR%\%GI_FILE%" >nul
+
+rem 2) Also drop it straight into orca_plugins (works on builds that auto-discover).
 set "GI_DIR=%PLUGIN_ROOT%\%GI_SUBDIR%"
 if not exist "%GI_DIR%" mkdir "%GI_DIR%"
 if errorlevel 1 (
@@ -145,7 +159,15 @@ if errorlevel 1 (
     exit /b 1
 )
 call :write_state "%GI_DIR%\.install_state.json" "%GI_NAME%" "%GI_CAP1%" "%GI_CAP2%" "%GI_VER%"
-echo Installed: "%GI_DIR%\%GI_FILE%"
+
+rem 3) Verify + report what actually landed.
+if exist "%GI_DIR%\%GI_FILE%" (
+    for %%A in ("%GI_DIR%\%GI_FILE%") do echo   [OK] %GI_NAME%: %%~zA bytes, updated %%~tA
+    echo        copy for UI install: "%DLDIR%\%GI_FILE%"
+) else (
+    echo   [MISSING] %GI_NAME% did not install to "%GI_DIR%".
+    exit /b 1
+)
 exit /b 0
 
 
